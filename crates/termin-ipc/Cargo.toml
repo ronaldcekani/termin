@@ -1,0 +1,13 @@
+[package]
+name = "termin-ipc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "JSON-lines IPC protocol types, sans-IO server codec, and client for Termin"
+
+[dependencies]
+termin-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true

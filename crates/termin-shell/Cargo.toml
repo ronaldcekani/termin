@@ -1,0 +1,11 @@
+[package]
+name = "termin-shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Embedded shell integration scripts and environment/argv builder for Termin"
+
+[dependencies]
+termin-core.workspace = true

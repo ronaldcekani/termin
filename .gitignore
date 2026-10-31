@@ -1,0 +1,20 @@
+# Build artifacts
+/target/
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Temporary and backup files
+*.tmp
+*.bak
+*.swp
+*~
+
+# IDE and editor files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace

@@ -1,0 +1,20 @@
+[package]
+name = "termin-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Metal rendering engine, pipeline setup, DrawList presentation for Termin"
+
+[dependencies]
+termin-core.workspace = true
+termin-text.workspace = true
+termin-platform.workspace = true
+log.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-metal.workspace = true
+objc2-quartz-core.workspace = true

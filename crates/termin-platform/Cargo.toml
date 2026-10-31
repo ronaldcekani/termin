@@ -1,0 +1,19 @@
+[package]
+name = "termin-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Platform abstraction and macOS AppKit integration for Termin"
+
+[dependencies]
+termin-core.workspace = true
+log.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-app-kit.workspace = true
+objc2-quartz-core.workspace = true
+objc2-user-notifications.workspace = true

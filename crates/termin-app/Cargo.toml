@@ -1,0 +1,23 @@
+[package]
+name = "termin-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "App state model, action dispatch, controllers, and wiring for Termin"
+
+[dependencies]
+termin-core.workspace = true
+termin-vt.workspace = true
+termin-pty.workspace = true
+termin-shell.workspace = true
+termin-text.workspace = true
+termin-render.workspace = true
+termin-platform.workspace = true
+termin-editor.workspace = true
+termin-config.workspace = true
+termin-ui.workspace = true
+termin-ipc.workspace = true
+termin-persist.workspace = true
+log.workspace = true

@@ -1,0 +1,33 @@
+# Termin Performance and Resource Budgets
+# Source of truth: docs/specs/performance.md
+
+[size]
+binary_arm64_stripped_mib = 8.0
+binary_arm64_stripped_stretch_mib = 5.0
+app_bundle_zipped_arm64_mib = 4.0
+app_bundle_zipped_arm64_stretch_mib = 3.0
+embedded_resources_kib = 600.0
+
+[memory]
+launch_idle_mib = 35.0
+per_additional_tab_mib = 1.0
+per_additional_pane_mib = 1.5
+scrollback_10k_lines_mib = 2.5
+scrollback_100k_lines_mib = 18.0
+idle_4x4x4_mib = 90.0
+idle_closed_return_margin_mib = 5.0
+
+[latency]
+cold_start_ms = 120.0
+shell_prompt_visible_ms = 250.0
+key_to_pty_ms = 0.3
+frame_cpu_full_ms = 2.0
+frame_cpu_incremental_ms = 0.3
+palette_fuzzy_10k_ms = 3.0
+
+[throughput]
+parser_ascii_mb_per_sec = 400.0
+parser_sgr_mb_per_sec = 150.0
+
+[cpu]
+idle_cpu_percent = 0.1

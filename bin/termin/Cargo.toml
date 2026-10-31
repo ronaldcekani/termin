@@ -1,0 +1,16 @@
+[package]
+name = "termin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Native macOS terminal application and CLI client"
+
+[[bin]]
+name = "termin"
+path = "src/main.rs"
+
+[dependencies]
+termin-core.workspace = true
+termin-app.workspace = true

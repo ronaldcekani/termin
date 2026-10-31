@@ -1,0 +1,13 @@
+[package]
+name = "termin-editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Input editor buffer, shell tokenizer, history, and completions for Termin"
+
+[dependencies]
+termin-core.workspace = true
+rustc-hash.workspace = true
+nucleo-matcher.workspace = true

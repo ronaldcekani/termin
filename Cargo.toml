@@ -1,0 +1,89 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/termin-core",
+    "crates/termin-vt",
+    "crates/termin-pty",
+    "crates/termin-shell",
+    "crates/termin-text",
+    "crates/termin-render",
+    "crates/termin-platform",
+    "crates/termin-editor",
+    "crates/termin-config",
+    "crates/termin-ui",
+    "crates/termin-ipc",
+    "crates/termin-persist",
+    "crates/termin-app",
+    "bin/termin",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+authors = ["Termin Contributors"]
+
+[workspace.dependencies]
+# Workspace internal crates
+termin-core = { path = "crates/termin-core" }
+termin-vt = { path = "crates/termin-vt" }
+termin-pty = { path = "crates/termin-pty" }
+termin-shell = { path = "crates/termin-shell" }
+termin-text = { path = "crates/termin-text" }
+termin-render = { path = "crates/termin-render" }
+termin-platform = { path = "crates/termin-platform" }
+termin-editor = { path = "crates/termin-editor" }
+termin-config = { path = "crates/termin-config" }
+termin-ui = { path = "crates/termin-ui" }
+termin-ipc = { path = "crates/termin-ipc" }
+termin-persist = { path = "crates/termin-persist" }
+termin-app = { path = "crates/termin-app" }
+
+# Allowlisted external dependencies (see docs/architecture.md §7)
+bitflags = "2.8"
+smallvec = { version = "1.14", features = ["union", "const_generics"] }
+rustc-hash = "2.1"
+unicode-width = "0.2"
+unicode-segmentation = "1.12"
+memchr = "2.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = { version = "0.8", default-features = false, features = ["parse", "display"] }
+nucleo-matcher = "0.3"
+log = "0.4"
+vte = "0.15"
+rustix = { version = "0.38", features = ["pty", "event", "termios", "process", "net", "fs"] }
+
+# macOS APIs via objc2
+objc2 = "0.5"
+block2 = "0.5"
+objc2-foundation = "0.2"
+objc2-app-kit = "0.2"
+objc2-quartz-core = "0.2"
+objc2-metal = "0.2"
+objc2-core-foundation = "0.3"
+objc2-core-graphics = "0.3"
+objc2-user-notifications = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+incremental = false
+
+[profile.release.package."*"]
+opt-level = 3
+
+[profile.release-size]
+inherits = "release"
+opt-level = "s"
+
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = "none"

@@ -1,0 +1,25 @@
+# Termin Dark Theme
+# See docs/design/design-system.md
+
+[meta]
+name = "termin-dark"
+variant = "dark"
+
+[ui]
+"bg.app" = "#0C0D0F"
+"bg.sidebar" = "#111215"
+"bg.chrome" = "#111215"
+"bg.surface" = "#16181B"
+"bg.surface.hover" = "#1C1E22"
+"bg.elevated" = "#1C1E22"
+"bg.input" = "#111215"
+
+"text.primary" = "#E7EAEE"
+"text.secondary" = "#9AA1AB"
+"text.muted" = "#6E7580"
+
+"accent.tide" = "#3FD0C9"
+"accent.ember" = "#FFB547"
+"status.success" = "#4ED38A"
+"status.danger" = "#FF6B6B"
+"status.info" = "#7AA7FF"

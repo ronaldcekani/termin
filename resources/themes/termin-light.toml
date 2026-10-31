@@ -1,0 +1,25 @@
+# Termin Light Theme
+# See docs/design/design-system.md
+
+[meta]
+name = "termin-light"
+variant = "light"
+
+[ui]
+"bg.app" = "#FFFFFF"
+"bg.sidebar" = "#F9FAFB"
+"bg.chrome" = "#F9FAFB"
+"bg.surface" = "#F2F4F6"
+"bg.surface.hover" = "#E9ECEF"
+"bg.elevated" = "#E9ECEF"
+"bg.input" = "#F9FAFB"
+
+"text.primary" = "#15181B"
+"text.secondary" = "#4B525B"
+"text.muted" = "#6B737D"
+
+"accent.tide" = "#0E9E98"
+"accent.ember" = "#D98500"
+"status.success" = "#1E9E5A"
+"status.danger" = "#D93A3A"
+"status.info" = "#2F6BDB"

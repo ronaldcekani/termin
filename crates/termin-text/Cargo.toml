@@ -1,0 +1,19 @@
+[package]
+name = "termin-text"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Font loading, CoreText shaping, glyph rasterization, and atlas packing for Termin"
+
+[dependencies]
+termin-core.workspace = true
+rustc-hash.workspace = true
+unicode-width.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-core-foundation.workspace = true
+objc2-core-graphics.workspace = true
