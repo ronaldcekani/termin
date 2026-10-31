@@ -1,0 +1,150 @@
+name = "git"
+description = "Fast, scalable, distributed revision control system"
+aliases = ["g"]
+
+[[options]]
+names = ["--version", "-v"]
+description = "Print version information"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Show help message"
+
+[[options]]
+names = ["-C"]
+description = "Run as if git was started in <path>"
+args = [{ name = "path", template = "folders" }]
+
+[[subcommands]]
+name = "checkout"
+aliases = ["co"]
+description = "Switch branches or restore working tree files"
+args = [{ name = "branch", generators = ["git_branches", "git_tags"], optional = true }]
+options = [
+  { names = ["-b"], description = "Create and checkout a new branch", args = [{ name = "new-branch" }] },
+  { names = ["-B"], description = "Create/reset and checkout a branch", args = [{ name = "branch" }] },
+  { names = ["--force", "-f"], description = "Force checkout" },
+  { names = ["--track", "-t"], description = "Set up tracking mode" },
+]
+
+[[subcommands]]
+name = "branch"
+aliases = ["br"]
+description = "List, create, or delete branches"
+args = [{ name = "branch", generators = ["git_branches"], optional = true }]
+options = [
+  { names = ["-a", "--all"], description = "List both remote-tracking and local branches" },
+  { names = ["-r", "--remotes"], description = "List remote-tracking branches" },
+  { names = ["-d", "--delete"], description = "Delete a branch", args = [{ name = "branch", generators = ["git_branches"] }] },
+  { names = ["-D"], description = "Force delete a branch", args = [{ name = "branch", generators = ["git_branches"] }] },
+  { names = ["-m", "--move"], description = "Move/rename a branch" },
+]
+
+[[subcommands]]
+name = "commit"
+aliases = ["ci"]
+description = "Record changes to the repository"
+options = [
+  { names = ["-m", "--message"], description = "Commit message", args = [{ name = "msg" }] },
+  { names = ["-a", "--all"], description = "Automatically stage files that have been modified and deleted" },
+  { names = ["--amend"], description = "Amend previous commit" },
+  { names = ["--no-verify", "-n"], description = "Bypass pre-commit and commit-msg hooks" },
+  { names = ["-v", "--verbose"], description = "Show diff in commit message template" },
+]
+
+[[subcommands]]
+name = "clone"
+description = "Clone a repository into a new directory"
+args = [
+  { name = "repository" },
+  { name = "directory", optional = true, template = "folders" }
+]
+options = [
+  { names = ["--depth"], description = "Create a shallow clone with limited history", args = [{ name = "depth" }] },
+  { names = ["--branch", "-b"], description = "Point HEAD to <name> branch instead of remote HEAD", args = [{ name = "name" }] },
+  { names = ["--recurse-submodules"], description = "Initialize and clone submodules" },
+]
+
+[[subcommands]]
+name = "status"
+aliases = ["st"]
+description = "Show the working tree status"
+options = [
+  { names = ["-s", "--short"], description = "Give the output in the short-format" },
+  { names = ["-b", "--branch"], description = "Show branch information even in short-format" },
+]
+
+[[subcommands]]
+name = "diff"
+description = "Show changes between commits, commit and working tree, etc"
+args = [{ name = "path", optional = true, template = "filepaths", variadic = true }]
+options = [
+  { names = ["--staged", "--cached"], description = "View changes staged for the next commit" },
+  { names = ["--name-only"], description = "Show only names of changed files" },
+  { names = ["--stat"], description = "Generate a diffstat" },
+]
+
+[[subcommands]]
+name = "add"
+description = "Add file contents to the index"
+args = [{ name = "pathspec", template = "filepaths", variadic = true }]
+options = [
+  { names = ["-A", "--all"], description = "Add changes from all tracked and untracked files" },
+  { names = ["-p", "--patch"], description = "Interactively choose hunks of patch between the index and the work tree" },
+  { names = ["-u", "--update"], description = "Update the index with modified tracked files" },
+]
+
+[[subcommands]]
+name = "push"
+description = "Update remote refs along with associated objects"
+args = [
+  { name = "repository", generators = ["git_remotes"], optional = true },
+  { name = "refspec", generators = ["git_branches"], optional = true }
+]
+options = [
+  { names = ["-u", "--set-upstream"], description = "Set upstream tracking" },
+  { names = ["--force", "-f"], description = "Force updates" },
+  { names = ["--tags"], description = "Push all tags" },
+]
+
+[[subcommands]]
+name = "pull"
+description = "Fetch from and integrate with another repository or local branch"
+args = [
+  { name = "repository", generators = ["git_remotes"], optional = true },
+  { name = "refspec", generators = ["git_branches"], optional = true }
+]
+options = [
+  { names = ["--rebase", "-r"], description = "Rebase current branch on top of upstream" },
+  { names = ["--autostash"], description = "Automatically stash before pulling" },
+]
+
+[[subcommands]]
+name = "log"
+description = "Show commit logs"
+options = [
+  { names = ["--oneline"], description = "Shorthand for --pretty=oneline --abbrev-commit" },
+  { names = ["-n", "--max-count"], description = "Limit the number of commits to output", args = [{ name = "number" }] },
+  { names = ["--graph"], description = "Draw a text-based graphical representation" },
+]
+
+[[subcommands]]
+name = "switch"
+description = "Switch branches"
+args = [{ name = "branch", generators = ["git_branches"] }]
+options = [
+  { names = ["-c", "--create"], description = "Create and switch to a new branch", args = [{ name = "new-branch" }] },
+  { names = ["-C"], description = "Force create/reset and switch to a branch", args = [{ name = "branch" }] },
+]
+
+[[subcommands]]
+name = "stash"
+description = "Stash the changes in a dirty working directory away"
+subcommands = [
+  { name = "push", description = "Save your local modifications to a new stash" },
+  { name = "pop", description = "Remove a single stashed state from the stash list and apply it" },
+  { name = "apply", description = "Like pop, but do not remove the state from the stash list" },
+  { name = "list", description = "List the stashed states that you currently have" },
+  { name = "drop", description = "Remove a single stashed state from the stash list" },
+  { name = "clear", description = "Remove all the stashed states" },
+]

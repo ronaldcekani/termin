@@ -1,0 +1,48 @@
+name = "go"
+description = "Go programming language management tool"
+
+[[options]]
+names = ["version"]
+description = "Print Go version"
+
+[[subcommands]]
+name = "build"
+description = "Compile the packages named by the import paths, along with their dependencies"
+options = [
+  { names = ["-o"], description = "Sets the output file name", args = [{ name = "output" }] },
+  { names = ["-v"], description = "Print the names of packages as they are compiled" },
+]
+
+[[subcommands]]
+name = "run"
+description = "Compile and run Go program"
+args = [{ name = "file", template = "filepaths", variadic = true }]
+
+[[subcommands]]
+name = "test"
+description = "Automate testing of Go packages"
+args = [{ name = "package", optional = true }]
+options = [
+  { names = ["-v"], description = "Verbose output: log all tests as they are run" },
+  { names = ["-run"], description = "Run only tests matching regular expression", args = [{ name = "regexp" }] },
+  { names = ["-bench"], description = "Run benchmarks matching regexp", args = [{ name = "regexp" }] },
+]
+
+[[subcommands]]
+name = "get"
+description = "Add dependencies to current module and install them"
+args = [{ name = "package", variadic = true }]
+
+[[subcommands]]
+name = "mod"
+description = "Module maintenance"
+subcommands = [
+  { name = "tidy", description = "Add missing and remove unused modules" },
+  { name = "init", description = "Initialize new module in current directory" },
+  { name = "download", description = "Download modules to local cache" },
+  { name = "vendor", description = "Make vendored copy of dependencies" },
+]
+
+[[subcommands]]
+name = "fmt"
+description = "Gofmt (reformat) package sources"

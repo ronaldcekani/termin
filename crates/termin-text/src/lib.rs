@@ -1,8 +1,27 @@
 //! Font resolution, shaping, glyph caching, and rasterization (`termin-text`).
 //!
-//! See `docs/architecture.md §3.5` and `docs/specs/text-and-rendering.md §2`.
+//! Provides the CoreText `FontBackend` implementation for macOS,
+//! shelf atlas packing, CPU procedural glyph rasterization (box-drawing, blocks, braille, powerline),
+//! glyph caching with staging upload buffers, and UI text layout with ellipsis truncation.
+//!
+//! See `docs/architecture.md §3.5` and `docs/specs/text-and-rendering.md §2, §4`.
 
-use std::collections::HashMap;
+pub mod atlas;
+pub mod cache;
+pub mod layout;
+pub mod procedural;
+
+#[cfg(target_os = "macos")]
+pub mod coretext;
+
+#[cfg(target_os = "macos")]
+pub use coretext::CoreTextBackend;
+
+pub use atlas::{AtlasRect, ShelfAtlas};
+pub use cache::{CachedGlyph, GlyphCache};
+pub use layout::{PositionedGlyph, TextLayout, TextLayoutCache, TruncateMode};
+pub use procedural::{is_procedural, rasterize_procedural};
+
 use termin_core::Rect;
 
 /// Handle to a loaded font.
@@ -84,8 +103,9 @@ pub struct ShapedGlyph {
 /// Destination atlas kind (grayscale mask or BGRA color).
 ///
 /// See `docs/specs/text-and-rendering.md §2.7`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum AtlasKind {
+    #[default]
     Mask,
     Color,
 }
@@ -137,29 +157,6 @@ pub trait FontBackend {
     fn glyph(&mut self, f: FontId, c: char) -> GlyphRef;
     fn shape(&mut self, f: FontId, text: &str, ligatures: bool, out: &mut Vec<ShapedGlyph>);
     fn rasterize(&mut self, g: GlyphRef, scale: f32, out: &mut RasterBuf) -> RasterInfo;
-}
-
-/// Glyph cache shell tracking atlas slots and producing upload lists.
-///
-/// See `docs/architecture.md §3.5` and `docs/specs/text-and-rendering.md §2.7`.
-pub struct GlyphCache<B: FontBackend> {
-    pub backend: B,
-    pub slots: HashMap<(FontId, char), GlyphRef>,
-    pending_uploads: Vec<AtlasUpload>,
-}
-
-impl<B: FontBackend> GlyphCache<B> {
-    pub fn new(backend: B) -> Self {
-        Self {
-            backend,
-            slots: HashMap::new(),
-            pending_uploads: Vec::new(),
-        }
-    }
-
-    pub fn drain_uploads(&mut self, out: &mut Vec<AtlasUpload>) {
-        out.append(&mut self.pending_uploads);
-    }
 }
 
 #[cfg(test)]

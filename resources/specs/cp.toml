@@ -1,0 +1,33 @@
+name = "cp"
+description = "Copy files and directories"
+
+[[options]]
+names = ["-r", "-R", "--recursive"]
+description = "Copy directories recursively"
+
+[[options]]
+names = ["-f", "--force"]
+description = "Force copy by removing existing destination files"
+
+[[options]]
+names = ["-i", "--interactive"]
+description = "Prompt before overwrite"
+
+[[options]]
+names = ["-p"]
+description = "Preserve file attributes"
+
+[[options]]
+names = ["-v", "--verbose"]
+description = "Explain what is being done"
+
+[[args]]
+name = "source"
+variadic = true
+template = "filepaths"
+generators = ["filepaths"]
+
+[[args]]
+name = "destination"
+template = "filepaths"
+generators = ["filepaths", "folders"]

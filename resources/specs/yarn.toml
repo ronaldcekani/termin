@@ -1,0 +1,40 @@
+name = "yarn"
+description = "Fast, reliable, and secure dependency management"
+
+[[options]]
+names = ["--version", "-v"]
+description = "Show version"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Show help"
+
+[[subcommands]]
+name = "install"
+description = "Install all the dependencies for a project"
+
+[[subcommands]]
+name = "add"
+description = "Install a package and any packages that it depends on"
+args = [{ name = "package", variadic = true }]
+options = [
+  { names = ["--dev", "-D"], description = "Save package to devDependencies" },
+]
+
+[[subcommands]]
+name = "remove"
+description = "Remove a package"
+args = [{ name = "package", variadic = true }]
+
+[[subcommands]]
+name = "run"
+description = "Run a defined package script"
+args = [{ name = "script", generators = ["npm_scripts"] }]
+
+[[subcommands]]
+name = "test"
+description = "Run tests"
+
+[[subcommands]]
+name = "build"
+description = "Run build script"

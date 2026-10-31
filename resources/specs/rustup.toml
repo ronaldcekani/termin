@@ -1,0 +1,51 @@
+name = "rustup"
+description = "The Rust toolchain installer"
+
+[[options]]
+names = ["--version", "-V"]
+description = "Print version info and exit"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Prints help information"
+
+[[subcommands]]
+name = "default"
+description = "Set the default toolchain"
+args = [{ name = "toolchain", suggestions = ["stable", "beta", "nightly"] }]
+
+[[subcommands]]
+name = "update"
+description = "Update Rust toolchains and rustup"
+args = [{ name = "toolchain", optional = true, suggestions = ["stable", "beta", "nightly"] }]
+
+[[subcommands]]
+name = "toolchain"
+description = "Modify or query the installed toolchains"
+subcommands = [
+  { name = "list", description = "List installed toolchains" },
+  { name = "install", description = "Install or update a given toolchain", args = [{ name = "toolchain", suggestions = ["stable", "beta", "nightly"] }] },
+  { name = "uninstall", description = "Uninstall a toolchain", args = [{ name = "toolchain" }] },
+]
+
+[[subcommands]]
+name = "target"
+description = "Modify a toolchain's supported targets"
+subcommands = [
+  { name = "list", description = "List installed and available targets" },
+  { name = "add", description = "Add a target to a Rust toolchain", args = [{ name = "target" }] },
+  { name = "remove", description = "Remove a target from a Rust toolchain", args = [{ name = "target" }] },
+]
+
+[[subcommands]]
+name = "component"
+description = "Modify a toolchain's installed components"
+subcommands = [
+  { name = "list", description = "List installed and available components" },
+  { name = "add", description = "Add a component to a Rust toolchain", args = [{ name = "component", suggestions = ["clippy", "rustfmt", "rust-src", "rust-analyzer", "llvm-tools-preview"] }] },
+  { name = "remove", description = "Remove a component from a Rust toolchain", args = [{ name = "component" }] },
+]
+
+[[subcommands]]
+name = "show"
+description = "Show the active and installed toolchains or profiles"

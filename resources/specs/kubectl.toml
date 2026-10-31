@@ -1,0 +1,65 @@
+name = "kubectl"
+description = "Kubernetes command-line tool"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Show help"
+
+[[options]]
+names = ["--namespace", "-n"]
+description = "If present, the namespace scope for this CLI request"
+args = [{ name = "namespace" }]
+
+[[options]]
+names = ["--context"]
+description = "The name of the kubeconfig context to use"
+args = [{ name = "context" }]
+
+[[subcommands]]
+name = "get"
+description = "Display one or many resources"
+args = [{ name = "resource", suggestions = ["pods", "services", "deployments", "nodes", "configmaps", "secrets", "namespaces", "ingress"] }, { name = "name", optional = true }]
+options = [
+  { names = ["--output", "-o"], description = "Output format", args = [{ name = "format", suggestions = ["json", "yaml", "wide", "name"] }] },
+  { names = ["--watch", "-w"], description = "After listing/getting the requested object, watch for changes" },
+]
+
+[[subcommands]]
+name = "describe"
+description = "Show details of a specific resource or group of resources"
+args = [{ name = "resource", suggestions = ["pods", "services", "deployments", "nodes"] }, { name = "name", optional = true }]
+
+[[subcommands]]
+name = "logs"
+description = "Print the logs for a container in a pod"
+args = [{ name = "pod" }]
+options = [
+  { names = ["--follow", "-f"], description = "Specify if the logs should be streamed" },
+  { names = ["--tail"], description = "Lines of recent log file to display", args = [{ name = "n" }] },
+  { names = ["--container", "-c"], description = "Print the logs of this container", args = [{ name = "container" }] },
+]
+
+[[subcommands]]
+name = "apply"
+description = "Apply a configuration to a resource by file name or stdin"
+options = [
+  { names = ["--filename", "-f"], description = "The files that contain the configurations to apply", args = [{ name = "file", template = "filepaths" }] },
+]
+
+[[subcommands]]
+name = "delete"
+description = "Delete resources by file names, stdin, resources and names, or by resources and label selector"
+args = [{ name = "resource", suggestions = ["pods", "services", "deployments"] }, { name = "name", optional = true }]
+options = [
+  { names = ["--filename", "-f"], description = "Filename to use to delete the resource", args = [{ name = "file", template = "filepaths" }] },
+]
+
+[[subcommands]]
+name = "exec"
+description = "Execute a command in a container"
+args = [{ name = "pod" }, { name = "command", variadic = true }]
+options = [
+  { names = ["--stdin", "-i"], description = "Pass stdin to the container" },
+  { names = ["--tty", "-t"], description = "Stdin is a TTY" },
+  { names = ["--container", "-c"], description = "Container name", args = [{ name = "container" }] },
+]

@@ -1,0 +1,28 @@
+name = "rm"
+description = "Remove files or directories"
+
+[[options]]
+names = ["-r", "-R", "--recursive"]
+description = "Remove directories and their contents recursively"
+
+[[options]]
+names = ["-f", "--force"]
+description = "Ignore nonexistent files and arguments, never prompt"
+
+[[options]]
+names = ["-i"]
+description = "Prompt before every removal"
+
+[[options]]
+names = ["-d", "--dir"]
+description = "Remove empty directories"
+
+[[options]]
+names = ["-v", "--verbose"]
+description = "Explain what is being done"
+
+[[args]]
+name = "file"
+variadic = true
+template = "filepaths"
+generators = ["filepaths"]

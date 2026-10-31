@@ -10,6 +10,27 @@ use termin_core::{
     WorkspaceId,
 };
 
+#[cfg(target_os = "macos")]
+pub mod macos;
+
+#[cfg(target_os = "macos")]
+pub use macos::input::OptionAsAlt;
+
+#[cfg(not(target_os = "macos"))]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum OptionAsAlt {
+    #[default]
+    Left,
+    Right,
+    Both,
+    None,
+}
+
+#[cfg(target_os = "macos")]
+pub use macos::MacPlatform;
+#[cfg(target_os = "macos")]
+pub use macos::MacPlatform as DefaultPlatform;
+
 /// Numeric identifier for application menu and keyboard actions.
 ///
 /// See `docs/architecture.md §3.4`.
@@ -46,6 +67,8 @@ pub struct WindowOpts {
     pub frame: Option<Rect>,
     pub restore_id: Option<u64>,
     pub title: Option<String>,
+    pub opacity: Option<f32>,
+    pub blur: Option<bool>,
 }
 
 /// Trait representing an active render target (e.g. `CAMetalLayer` drawable).
@@ -54,6 +77,11 @@ pub struct WindowOpts {
 pub trait RenderTarget {
     fn size(&self) -> Size;
     fn scale_factor(&self) -> f32;
+
+    /// Direct pointer to underlying CAMetalLayer (macOS only).
+    fn metal_layer(&self) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
 }
 
 /// Specification for a native system menu item.
@@ -93,6 +121,7 @@ pub struct SystemNotification {
 ///
 /// See `docs/architecture.md §3.4` and `docs/specs/platform-macos.md §3, §4`.
 #[non_exhaustive]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PlatformEvent {
     Key(KeyEvent),
     ImeCompose {
@@ -127,44 +156,209 @@ impl PlatformCx {
     }
 
     /// Create a new OS window with options.
-    pub fn create_window(&mut self, _opts: &WindowOpts) -> WindowId {
-        WindowId::next()
+    pub fn create_window(&mut self, opts: &WindowOpts) -> WindowId {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_create_window(opts)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = opts;
+            WindowId::next()
+        }
     }
 
     /// Close an existing OS window.
-    pub fn close_window(&mut self, _w: WindowId) {}
+    pub fn close_window(&mut self, w: WindowId) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_close_window(w);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = w;
+        }
+    }
 
     /// Request a new display frame for window.
-    pub fn request_frame(&mut self, _w: WindowId) {}
+    pub fn request_frame(&mut self, w: WindowId) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_request_frame(w);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = w;
+        }
+    }
 
     /// Set the mouse cursor icon for window.
-    pub fn set_cursor(&mut self, _w: WindowId, _c: CursorIcon) {}
+    pub fn set_cursor(&mut self, w: WindowId, c: CursorIcon) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_set_cursor(w, c);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (w, c);
+        }
+    }
 
     /// Set IME input composition rectangle.
-    pub fn set_ime_rect(&mut self, _w: WindowId, _r: Rect) {}
+    pub fn set_ime_rect(&mut self, w: WindowId, r: Rect) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_set_ime_rect(w, r);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (w, r);
+        }
+    }
+
+    /// Set window drag regions in view coordinates.
+    pub fn set_drag_regions(&mut self, w: WindowId, regions: Vec<Rect>) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_set_drag_regions(w, regions);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (w, regions);
+        }
+    }
+
+    /// Set window opacity (alpha level from 0.0 to 1.0).
+    pub fn set_window_opacity(&mut self, w: WindowId, opacity: f32) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_set_window_opacity(w, opacity);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (w, opacity);
+        }
+    }
+
+    /// Set accessible text for VoiceOver.
+    pub fn set_accessible_text(&mut self, w: WindowId, text: &str) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_set_accessible_text(w, text);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (w, text);
+        }
+    }
+
+    /// Toggle native window fullscreen.
+    pub fn toggle_fullscreen(&mut self, w: WindowId) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_toggle_fullscreen(w);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = w;
+        }
+    }
+
+    /// Set option-as-alt mode.
+    pub fn set_option_as_alt(&mut self, mode: OptionAsAlt) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::with_state(|s| s.option_as_alt = mode);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = mode;
+        }
+    }
 
     /// Read string from system clipboard.
     pub fn clipboard_get(&self) -> Option<String> {
-        None
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::clipboard::clipboard_get()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
     }
 
     /// Write string to system clipboard.
-    pub fn clipboard_set(&mut self, _s: &str) {}
+    pub fn clipboard_set(&mut self, s: &str) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::clipboard::clipboard_set(s);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = s;
+        }
+    }
 
     /// Post a system desktop notification.
-    pub fn notify(&mut self, _n: &SystemNotification) {}
+    pub fn notify(&mut self, n: &SystemNotification) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::notification::notify(n);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = n;
+        }
+    }
 
     /// Set application dock badge number (0 clears).
-    pub fn set_badge(&mut self, _n: u32) {}
+    pub fn set_badge(&mut self, n: u32) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::notification::set_badge(n);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = n;
+        }
+    }
 
     /// Open URL in default system handler.
-    pub fn open_url(&self, _url: &str) {}
+    pub fn open_url(&self, url: &str) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_open_url(url);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = url;
+        }
+    }
 
     /// Reveal path in system file manager (Finder).
-    pub fn reveal_in_finder(&self, _p: &Path) {}
+    pub fn reveal_in_finder(&self, p: &Path) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_reveal_in_finder(p);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = p;
+        }
+    }
 
     /// Update native system application menu.
-    pub fn set_menu(&mut self, _menu: &MenuSpec) {}
+    pub fn set_menu(&mut self, menu: &MenuSpec) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_set_menu(menu);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = menu;
+        }
+    }
 
     /// Obtain a wake handle to signal this platform context from another thread.
     pub fn wake_handle(&self) -> WakeHandle {
@@ -173,7 +367,14 @@ impl PlatformCx {
 
     /// Current system visual appearance (Light or Dark).
     pub fn appearance(&self) -> Appearance {
-        Appearance::Dark
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::with_state(|s| s.appearance)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Appearance::Dark
+        }
     }
 }
 
@@ -208,6 +409,16 @@ pub trait Platform: Sized {
     fn run<H: AppHandler>(handler: H) -> !;
 }
 
+#[cfg(not(target_os = "macos"))]
+pub struct StubPlatform;
+
+#[cfg(not(target_os = "macos"))]
+impl Platform for StubPlatform {
+    fn run<H: AppHandler>(_handler: H) -> ! {
+        panic!("Termin platform only implemented on macOS");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,10 +437,11 @@ mod tests {
     }
 
     #[test]
-    fn test_platform_cx_window_creation() {
+    fn test_platform_cx_basics() {
         let wake = WakeHandle::new(|| {});
         let mut cx = PlatformCx::new(wake);
-        let win = cx.create_window(&WindowOpts::default());
-        assert!(win.0 > 0);
+        let test_str = "termin_test_clipboard_value_42";
+        cx.clipboard_set(test_str);
+        assert_eq!(cx.clipboard_get().as_deref(), Some(test_str));
     }
 }

@@ -2,9 +2,23 @@
 //!
 //! See `docs/architecture.md §3.5` and `docs/specs/text-and-rendering.md §3`.
 
-use termin_core::{Rect, Rgba};
-use termin_platform::RenderTarget;
+use termin_core::{Rect, Rgba, Size};
 use termin_text::AtlasUpload;
+
+/// Trait representing an active render target (e.g. `CAMetalLayer` drawable or offscreen texture).
+///
+/// See `docs/architecture.md §3.4` and `§3.5`.
+pub trait RenderTarget {
+    fn size(&self) -> Size;
+    fn scale_factor(&self) -> f32;
+}
+
+/// Marker trait for Plain Old Data types safe to copy as bytes into GPU buffers.
+///
+/// # Safety
+/// Implementing type must be `#[repr(C)]`, have no padding bytes containing uninitialized
+/// data (or all bytes valid), and contain no references or non-Pod fields.
+pub unsafe trait Pod: Copy + 'static {}
 
 /// Instanced quad primitive for background fills, rounded rectangles, borders, and shadows (40 bytes).
 ///
@@ -24,6 +38,9 @@ pub struct QuadInst {
 // Compile-time size assertion: exactly 40 bytes
 const _: () = assert!(std::mem::size_of::<QuadInst>() == 40);
 
+// SAFETY: QuadInst is #[repr(C)], 40 bytes, all fields are primitive numbers (f32, u32) with no invalid bit patterns.
+unsafe impl Pod for QuadInst {}
+
 /// Instanced glyph primitive referencing atlas coordinates (24 bytes).
 ///
 /// See `docs/architecture.md §3.5` and `docs/specs/text-and-rendering.md §3.2`.
@@ -38,6 +55,9 @@ pub struct GlyphInst {
 
 // Compile-time size assertion: exactly 24 bytes
 const _: () = assert!(std::mem::size_of::<GlyphInst>() == 24);
+
+// SAFETY: GlyphInst is #[repr(C)], 24 bytes, all fields are primitive numbers (f32, u16, u32) with no invalid bit patterns.
+unsafe impl Pod for GlyphInst {}
 
 /// A single rendering layer with optional scissor clipping and instance arrays.
 ///
@@ -92,6 +112,11 @@ pub trait Renderer {
     /// Upload rasterized glyph pixels to GPU atlas textures.
     fn upload_glyphs(&mut self, uploads: &[AtlasUpload]);
 
+    /// Upload rasterized glyph pixels with provided pixel buffer.
+    fn upload_glyphs_with_data(&mut self, uploads: &[AtlasUpload], _data: &[u8]) {
+        self.upload_glyphs(uploads);
+    }
+
     /// Present a complete draw list into the target with clear color.
     fn render(&mut self, target: &mut dyn RenderTarget, list: &DrawList, clear: Rgba);
 
@@ -99,31 +124,11 @@ pub trait Renderer {
     fn release_idle_resources(&mut self);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[cfg(target_os = "macos")]
+pub mod metal;
 
-    #[test]
-    fn test_instance_struct_sizes() {
-        assert_eq!(std::mem::size_of::<QuadInst>(), 40);
-        assert_eq!(std::mem::size_of::<GlyphInst>(), 24);
-    }
-
-    #[test]
-    fn test_draw_list_push() {
-        let mut list = DrawList::new();
-        let mut layer = Layer::new(None);
-        layer.quads.push(QuadInst {
-            rect: [0.0, 0.0, 100.0, 50.0],
-            color: 0xFFFFFFFF,
-            border_color: 0,
-            radius: 4.0,
-            border: 1.0,
-            shadow: 0.0,
-            _pad: 0.0,
-        });
-        list.push_layer(layer);
-        assert_eq!(list.layers.len(), 1);
-        assert_eq!(list.layers[0].quads.len(), 1);
-    }
-}
+#[cfg(target_os = "macos")]
+pub use metal::{
+    configure_layer, create_device, read_texture_rgba, MetalRenderer, OffscreenTarget, Pipelines,
+    RenderError,
+};

@@ -11,3 +11,4 @@ description = "Session snapshot persistence and state restoration for Termin"
 termin-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+log.workspace = true

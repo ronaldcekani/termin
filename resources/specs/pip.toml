@@ -1,0 +1,47 @@
+name = "pip"
+description = "A tool for installing and managing Python packages"
+aliases = ["pip3"]
+
+[[options]]
+names = ["--version", "-V"]
+description = "Show version and exit"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Show help"
+
+[[subcommands]]
+name = "install"
+description = "Install packages"
+args = [{ name = "package", variadic = true }]
+options = [
+  { names = ["--requirement", "-r"], description = "Install from the given requirements file", args = [{ name = "file", template = "filepaths" }] },
+  { names = ["--upgrade", "-U"], description = "Upgrade all specified packages to newest available version" },
+  { names = ["--editable", "-e"], description = "Install a project in editable mode", args = [{ name = "path", template = "folders" }] },
+  { names = ["--user"], description = "Install to the Python user install directory" },
+]
+
+[[subcommands]]
+name = "uninstall"
+description = "Uninstall packages"
+args = [{ name = "package", variadic = true }]
+options = [
+  { names = ["--yes", "-y"], description = "Don't ask for confirmation of uninstall deletions" },
+]
+
+[[subcommands]]
+name = "list"
+description = "List installed packages"
+options = [
+  { names = ["--outdated", "-o"], description = "List outdated packages" },
+  { names = ["--uptodate", "-u"], description = "List uptodate packages" },
+]
+
+[[subcommands]]
+name = "freeze"
+description = "Output installed packages in requirements format"
+
+[[subcommands]]
+name = "show"
+description = "Show information about one or more installed packages"
+args = [{ name = "package", variadic = true }]

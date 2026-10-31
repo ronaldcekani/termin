@@ -1,0 +1,44 @@
+name = "pnpm"
+description = "Fast, disk space efficient package manager"
+
+[[options]]
+names = ["--version", "-v"]
+description = "Show version"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Show help"
+
+[[subcommands]]
+name = "install"
+aliases = ["i"]
+description = "Install all dependencies for a project"
+
+[[subcommands]]
+name = "add"
+description = "Installs a package and any packages that it depends on"
+args = [{ name = "package", variadic = true }]
+options = [
+  { names = ["--save-dev", "-D"], description = "Save package to devDependencies" },
+  { names = ["--global", "-g"], description = "Install package globally" },
+]
+
+[[subcommands]]
+name = "remove"
+aliases = ["rm", "uninstall", "un"]
+description = "Removes packages from node_modules and from the project package.json"
+args = [{ name = "package", variadic = true }]
+
+[[subcommands]]
+name = "run"
+description = "Runs a defined package script"
+args = [{ name = "script", generators = ["npm_scripts"] }]
+
+[[subcommands]]
+name = "test"
+aliases = ["t"]
+description = "Runs the test script"
+
+[[subcommands]]
+name = "build"
+description = "Runs the build script"

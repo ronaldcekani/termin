@@ -1,0 +1,35 @@
+name = "make"
+description = "GNU make utility to maintain groups of programs"
+
+[[options]]
+names = ["-f", "--file", "--makefile"]
+description = "Read FILE as a makefile"
+args = [{ name = "file", template = "filepaths" }]
+
+[[options]]
+names = ["-j", "--jobs"]
+description = "Allow N jobs at once; infinite jobs with no arg"
+args = [{ name = "n", optional = true }]
+
+[[options]]
+names = ["-B", "--always-make"]
+description = "Unconditionally make all targets"
+
+[[options]]
+names = ["-C", "--directory"]
+description = "Change to DIRECTORY before doing anything"
+args = [{ name = "dir", template = "folders" }]
+
+[[options]]
+names = ["-k", "--keep-going"]
+description = "Keep going when some targets can't be made"
+
+[[options]]
+names = ["-n", "--just-print", "--dry-run", "--recon"]
+description = "Don't actually run any recipe; just print them"
+
+[[args]]
+name = "target"
+optional = true
+variadic = true
+generators = ["make_targets"]

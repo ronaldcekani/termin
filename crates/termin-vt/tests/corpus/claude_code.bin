@@ -1,0 +1,201 @@
+]7;file://host/Users/test/termin\]133;A\[32m$[0m ]133;B\cargo test --run 0
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 1
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 2
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 3
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 4
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 5
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 6
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 7
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 8
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 9
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 10
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 11
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 12
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 13
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 14
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 15
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 16
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 17
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 18
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 19
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 20
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 21
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 22
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 23
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 24
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 25
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 26
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 27
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 28
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 29
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 30
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 31
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 32
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 33
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 34
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 35
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 36
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 37
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 38
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 39
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 40
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 41
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 42
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 43
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 44
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 45
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 46
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 47
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 48
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\]133;A\[32m$[0m ]133;B\cargo test --run 49
+]133;C;cmdline_url=cargo%20test\[?2026h   Compiling crate v0.1.0
+    Finished test [unoptimized] in 0.12s
+     Running unittests
+[?2026l]133;D;0\

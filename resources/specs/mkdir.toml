@@ -1,0 +1,21 @@
+name = "mkdir"
+description = "Make directories"
+
+[[options]]
+names = ["-p", "--parents"]
+description = "No error if existing, make parent directories as needed"
+
+[[options]]
+names = ["-m", "--mode"]
+description = "Set file mode (as in chmod), not a=rwx - umask"
+args = [{ name = "mode" }]
+
+[[options]]
+names = ["-v", "--verbose"]
+description = "Print a message for each created directory"
+
+[[args]]
+name = "directory"
+variadic = true
+template = "folders"
+generators = ["folders"]

@@ -1,0 +1,34 @@
+name = "ssh"
+description = "OpenSSH remote login client"
+
+[[options]]
+names = ["-p"]
+description = "Port to connect to on the remote host"
+args = [{ name = "port" }]
+
+[[options]]
+names = ["-i"]
+description = "Selects a file from which the identity (private key) for public key authentication is read"
+args = [{ name = "identity_file", template = "filepaths" }]
+
+[[options]]
+names = ["-v"]
+description = "Verbose mode"
+
+[[options]]
+names = ["-N"]
+description = "Do not execute a remote command. Useful for forwarding ports"
+
+[[options]]
+names = ["-L"]
+description = "Specifies that connections to the given TCP port or Unix socket on the local host are to be forwarded to the given host and port on the remote side"
+args = [{ name = "forward" }]
+
+[[args]]
+name = "destination"
+generators = ["ssh_hosts"]
+
+[[args]]
+name = "command"
+optional = true
+variadic = true

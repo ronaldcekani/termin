@@ -1,0 +1,16 @@
+name = "cd"
+description = "Change the working directory"
+
+[[options]]
+names = ["-L"]
+description = "Force symbolic links to be followed"
+
+[[options]]
+names = ["-P"]
+description = "Use the physical directory structure without following symbolic links"
+
+[[args]]
+name = "directory"
+optional = true
+template = "folders"
+generators = ["folders"]

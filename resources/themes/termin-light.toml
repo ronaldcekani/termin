@@ -5,7 +5,48 @@
 name = "termin-light"
 variant = "light"
 
+[terminal]
+foreground = "#15181B"
+background = "#FFFFFF"
+cursor = "#0E9E98"
+cursor_text = "#FFFFFF"
+selection_bg = "#0E9E9847"
+selection_fg = "#15181B"
+ansi = [
+    "#2D3238", # 0: black
+    "#C92A2A", # 1: red
+    "#1E8E50", # 2: green
+    "#A86A00", # 3: yellow
+    "#2F6BDB", # 4: blue
+    "#9A3FD1", # 5: magenta
+    "#0E8F89", # 6: cyan
+    "#8C949E", # 7: white
+    "#3A3F47", # 8: bright black
+    "#D93A3A", # 9: bright red
+    "#1E9E5A", # 10: bright green
+    "#C48400", # 11: bright yellow
+    "#4A85F0", # 12: bright blue
+    "#B055E8", # 13: bright magenta
+    "#12ADA6", # 14: bright cyan
+    "#6B737D", # 15: bright white
+]
+
 [ui]
+# Neutral ramp (graphite, slightly cool)
+"n0" = "#FFFFFF"
+"n1" = "#F9FAFB"
+"n2" = "#F2F4F6"
+"n3" = "#E9ECEF"
+"n4" = "#DEE2E6"
+"n5" = "#CDD3D9"
+"n6" = "#B3BAC2"
+"n7" = "#8C949E"
+"n8" = "#6B737D"
+"n9" = "#4B525B"
+"n10" = "#2D3238"
+"n11" = "#15181B"
+
+# Semantic backgrounds
 "bg.app" = "#FFFFFF"
 "bg.sidebar" = "#F9FAFB"
 "bg.chrome" = "#F9FAFB"
@@ -13,13 +54,57 @@ variant = "light"
 "bg.surface.hover" = "#E9ECEF"
 "bg.elevated" = "#E9ECEF"
 "bg.input" = "#F9FAFB"
+"bg.selected" = "#0E9E9824"
+"bg.attention" = "#CD7C001A"
+"bg.danger" = "#D93A3A14"
 
+# Borders
+"border.subtle" = "#E9ECEF"
+"border.default" = "#DEE2E6"
+"border.strong" = "#B3BAC2"
+"border.focus" = "#0E9E98"
+"border.attention" = "#CD7C00"
+
+# Text
 "text.primary" = "#15181B"
 "text.secondary" = "#4B525B"
+"text.tertiary" = "#6B737D"
 "text.muted" = "#6B737D"
+"text.disabled" = "#8C949E"
+"text.on_accent" = "#FFFFFF"
+"text.link" = "#0E9E98"
 
+# Icons
+"icon.default" = "#6B737D"
+"icon.hover" = "#2D3238"
+
+# Cursor and selection
+"cursor" = "#0E9E98"
+"selection" = "#0E9E9847"
+
+# Search highlights
+"search.match" = "#CD7C004D"
+"search.current" = "#CD7C00A6"
+
+# Chrome decorations
+"scrollbar" = "#B3BAC2B3"
+"shadow" = "#00000033"
+
+# Syntax highlighting (input editor)
+"syntax.command" = "#15181B"
+"syntax.command.invalid" = "#D93A3A"
+"syntax.argument" = "#2D3238"
+"syntax.flag" = "#2F6BDB"
+"syntax.string" = "#2D7D18"
+"syntax.variable" = "#8B36B8"
+"syntax.operator" = "#0E9E98"
+"syntax.path" = "#2D3238"
+"syntax.comment" = "#8C949E"
+"syntax.ghost" = "#8C949E"
+
+# Brand and semantic hues
 "accent.tide" = "#0E9E98"
-"accent.ember" = "#D98500"
+"accent.ember" = "#CD7C00"
 "status.success" = "#1E9E5A"
 "status.danger" = "#D93A3A"
 "status.info" = "#2F6BDB"

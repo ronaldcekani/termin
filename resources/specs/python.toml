@@ -1,0 +1,40 @@
+name = "python"
+description = "Python programming language interpreter"
+aliases = ["python3"]
+
+[[options]]
+names = ["--version", "-V"]
+description = "Print the Python version number and exit"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Print a short description of all command line options"
+
+[[options]]
+names = ["-m"]
+description = "Run library module as a script"
+args = [{ name = "module" }]
+
+[[options]]
+names = ["-c"]
+description = "Execute the Python program passed in as string"
+args = [{ name = "cmd" }]
+
+[[options]]
+names = ["-i"]
+description = "Inspect interactively after running script"
+
+[[options]]
+names = ["-u"]
+description = "Force the stdout and stderr streams to be unbuffered"
+
+[[args]]
+name = "script"
+optional = true
+template = "filepaths"
+generators = ["filepaths"]
+
+[[args]]
+name = "arguments"
+optional = true
+variadic = true

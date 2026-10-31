@@ -2,196 +2,218 @@
 //!
 //! See `docs/specs/ipc-cli.md`.
 
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::io::{self, BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
-use std::path::Path;
+pub mod client;
+pub mod codec;
+pub mod error;
+pub mod protocol;
 
-/// Incoming IPC JSON-RPC request.
-///
-/// See `docs/specs/ipc-cli.md §2`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Request {
-    pub id: u64,
-    pub method: String,
-    #[serde(default)]
-    pub params: serde_json::Value,
-}
-
-/// Error details returned in an IPC response.
-///
-/// See `docs/specs/ipc-cli.md §2`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ResponseError {
-    pub code: String,
-    pub message: String,
-}
-
-/// Outgoing IPC JSON-RPC response.
-///
-/// See `docs/specs/ipc-cli.md §2`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Response {
-    pub id: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<ResponseError>,
-}
-
-/// Outgoing asynchronous event emitted after subscription.
-///
-/// See `docs/specs/ipc-cli.md §2`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Event {
-    pub event: String,
-    pub data: serde_json::Value,
-}
-
-/// Error returned by IPC client or codec operations.
-#[derive(Debug)]
-pub enum IpcError {
-    Io(io::Error),
-    Json(serde_json::Error),
-    Rpc(ResponseError),
-}
-
-impl fmt::Display for IpcError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(e) => write!(f, "IPC IO error: {}", e),
-            Self::Json(e) => write!(f, "IPC JSON error: {}", e),
-            Self::Rpc(err) => write!(f, "IPC RPC error [{}]: {}", err.code, err.message),
-        }
-    }
-}
-
-impl std::error::Error for IpcError {}
-
-impl From<io::Error> for IpcError {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
-impl From<serde_json::Error> for IpcError {
-    fn from(e: serde_json::Error) -> Self {
-        Self::Json(e)
-    }
-}
-
-/// Sans-IO server codec for parsing requests and encoding responses.
-///
-/// See `docs/specs/ipc-cli.md §2`.
-#[derive(Clone, Debug, Default)]
-pub struct IpcCodec {
-    buf: Vec<u8>,
-}
-
-impl IpcCodec {
-    pub fn new() -> Self {
-        Self { buf: Vec::new() }
-    }
-
-    /// Feed incoming raw bytes into buffer.
-    pub fn feed(&mut self, bytes: &[u8]) {
-        self.buf.extend_from_slice(bytes);
-    }
-
-    /// Decode next complete request if newline is found.
-    pub fn decode_request(&mut self) -> Result<Option<Request>, IpcError> {
-        if let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
-            let line = self.buf.drain(..=pos).collect::<Vec<u8>>();
-            let req: Request = serde_json::from_slice(&line)?;
-            Ok(Some(req))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Encode response into a newline-terminated byte vector.
-    pub fn encode_response(resp: &Response) -> Result<Vec<u8>, IpcError> {
-        let mut bytes = serde_json::to_vec(resp)?;
-        bytes.push(b'\n');
-        Ok(bytes)
-    }
-
-    /// Encode event into a newline-terminated byte vector.
-    pub fn encode_event(event: &Event) -> Result<Vec<u8>, IpcError> {
-        let mut bytes = serde_json::to_vec(event)?;
-        bytes.push(b'\n');
-        Ok(bytes)
-    }
-}
-
-/// Blocking client for interacting with running Termin instance.
-///
-/// See `docs/specs/ipc-cli.md §4`.
-pub struct IpcClient {
-    stream: UnixStream,
-    next_id: u64,
-}
-
-impl IpcClient {
-    /// Connect to Unix domain socket at path.
-    pub fn connect(path: &Path) -> Result<Self, IpcError> {
-        let stream = UnixStream::connect(path)?;
-        Ok(Self { stream, next_id: 1 })
-    }
-
-    /// Execute a blocking RPC call.
-    pub fn call(
-        &mut self,
-        method: &str,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, IpcError> {
-        let id = self.next_id;
-        self.next_id += 1;
-
-        let req = Request {
-            id,
-            method: method.to_string(),
-            params,
-        };
-
-        let mut line = serde_json::to_vec(&req)?;
-        line.push(b'\n');
-        self.stream.write_all(&line)?;
-        self.stream.flush()?;
-
-        let mut reader = BufReader::new(&self.stream);
-        let mut resp_line = String::new();
-        reader.read_line(&mut resp_line)?;
-
-        let resp: Response = serde_json::from_str(&resp_line)?;
-        if let Some(err) = resp.error {
-            Err(IpcError::Rpc(err))
-        } else {
-            Ok(resp.result.unwrap_or(serde_json::Value::Null))
-        }
-    }
-}
+pub use client::{default_socket_path, resolve_socket_path, Client, IpcClient};
+pub use codec::IpcCodec;
+pub use error::{IpcError, MAX_LINE_BYTES};
+pub use protocol::*;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::path::PathBuf;
+    use std::thread;
 
     #[test]
-    fn test_codec_round_trip() {
+    fn test_codec_request_round_trip() {
         let mut codec = IpcCodec::new();
-        let json = b"{\"id\":1,\"method\":\"ping\",\"params\":{}}\n";
-        codec.feed(json);
-        let req = codec.decode_request().unwrap().unwrap();
-        assert_eq!(req.id, 1);
-        assert_eq!(req.method, "ping");
-
-        let resp = Response {
-            id: 1,
-            result: Some(serde_json::json!({"version": "0.1.0"})),
-            error: None,
-        };
-        let encoded = IpcCodec::encode_response(&resp).unwrap();
+        let req = Request::new(42, "split", serde_json::json!({"direction": "right", "pane": 12}));
+        let encoded = IpcCodec::encode_request(&req).unwrap();
         assert!(encoded.ends_with(b"\n"));
+
+        codec.feed(&encoded).unwrap();
+        let decoded = codec.decode_request().unwrap().expect("request decoded");
+        assert_eq!(decoded.id, 42);
+        assert_eq!(decoded.method, "split");
+        assert_eq!(decoded.params["direction"], "right");
+        assert_eq!(decoded.params["pane"], 12);
+    }
+
+    #[test]
+    fn test_codec_response_and_event_round_trip() {
+        let mut codec = IpcCodec::new();
+
+        // Response
+        let resp = Response::ok(1, serde_json::json!({"version": "0.1.0"}));
+        let encoded_resp = IpcCodec::encode_response(&resp).unwrap();
+        codec.feed(&encoded_resp).unwrap();
+        let decoded_resp = codec.decode_response().unwrap().expect("response decoded");
+        assert_eq!(decoded_resp.id, 1);
+        assert_eq!(decoded_resp.result.unwrap()["version"], "0.1.0");
+
+        // Error response
+        let err_resp = Response::error(2, "not_found", "pane 99");
+        let encoded_err = IpcCodec::encode_response(&err_resp).unwrap();
+        codec.feed(&encoded_err).unwrap();
+        let decoded_err = codec.decode_response().unwrap().expect("error response decoded");
+        assert_eq!(decoded_err.id, 2);
+        assert_eq!(decoded_err.error.unwrap().code, "not_found");
+
+        // Event
+        let event = Event::new("attention", serde_json::json!({"tab": 5}));
+        let encoded_ev = IpcCodec::encode_event(&event).unwrap();
+        codec.feed(&encoded_ev).unwrap();
+        let decoded_ev = codec.decode_event().unwrap().expect("event decoded");
+        assert_eq!(decoded_ev.event, "attention");
+        assert_eq!(decoded_ev.data["tab"], 5);
+    }
+
+    #[test]
+    fn test_codec_line_too_long() {
+        let mut codec = IpcCodec::new();
+        // Buffer larger than 1 MiB without newline
+        let huge = vec![b'a'; MAX_LINE_BYTES + 10];
+        let res = codec.feed(&huge);
+        assert!(res.is_err(), "Exceeding max line without newline should error");
+    }
+
+    #[test]
+    fn test_codec_partial_chunks() {
+        let mut codec = IpcCodec::new();
+        let json = b"{\"id\":10,\"method\":\"ping\",\"params\":{}}\n";
+
+        // Feed byte by byte
+        for &b in &json[..json.len() - 1] {
+            codec.feed(&[b]).unwrap();
+            assert!(codec.decode_request().unwrap().is_none());
+        }
+
+        // Feed terminating newline
+        codec.feed(b"\n").unwrap();
+        let req = codec.decode_request().unwrap().expect("should decode after newline");
+        assert_eq!(req.id, 10);
+        assert_eq!(req.method, "ping");
+    }
+
+    #[test]
+    fn test_codec_malformed_json_recovery() {
+        let mut codec = IpcCodec::new();
+        codec.feed(b"this is not valid json\n{\"id\":1,\"method\":\"ok\",\"params\":{}}\n").unwrap();
+
+        // First line is malformed
+        let err = codec.decode_request();
+        assert!(err.is_err());
+
+        // Second line succeeds
+        let next = codec.decode_request().unwrap().expect("valid request decoded");
+        assert_eq!(next.id, 1);
+        assert_eq!(next.method, "ok");
+    }
+
+    #[test]
+    fn test_client_server_unix_socket() {
+        let temp_dir = PathBuf::from("/tmp");
+        let socket_name = format!("termin-test-{}.sock", std::process::id());
+        let socket_path = temp_dir.join(socket_name);
+        let _ = std::fs::remove_file(&socket_path);
+
+        // Attempt real Unix domain socket bind/connect.
+        // If sandbox environment prevents connect() with PermissionDenied, use UnixStream::pair().
+        let bind_res = UnixListener::bind(&socket_path);
+        let (server_stream, client_stream) = match bind_res {
+            Ok(listener) => {
+                let s_path = socket_path.clone();
+                let server_thread = thread::spawn(move || {
+                    let (stream, _) = listener.accept()?;
+                    Ok::<_, std::io::Error>(stream)
+                });
+
+                match std::os::unix::net::UnixStream::connect(&s_path) {
+                    Ok(c_stream) => {
+                        let s_stream = server_thread.join().unwrap().expect("accept ok");
+                        (s_stream, c_stream)
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                        let _ = std::fs::remove_file(&s_path);
+                        // Fallback to socket pair in sandboxed execution
+                        let (s, c) = UnixStream::pair().expect("socketpair");
+                        (s, c)
+                    }
+                    Err(e) => panic!("connect failed: {:?}", e),
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                let (s, c) = UnixStream::pair().expect("socketpair");
+                (s, c)
+            }
+            Err(e) => panic!("bind failed: {:?}", e),
+        };
+
+        let handle = thread::spawn(move || {
+            let mut reader = BufReader::new(server_stream.try_clone().unwrap());
+            let mut writer = server_stream;
+
+            // Handle ping
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let req: Request = serde_json::from_str(&line).unwrap();
+            assert_eq!(req.method, "ping");
+
+            let resp = Response::ok(req.id, serde_json::json!({"version": "0.1.0"}));
+            let encoded = IpcCodec::encode_response(&resp).unwrap();
+            writer.write_all(&encoded).unwrap();
+            writer.flush().unwrap();
+
+            // Handle split
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            let req2: Request = serde_json::from_str(&line).unwrap();
+            assert_eq!(req2.method, "split");
+            let resp2 = Response::ok(req2.id, serde_json::json!({"pane": 2, "tab": 3}));
+            let encoded2 = IpcCodec::encode_response(&resp2).unwrap();
+            writer.write_all(&encoded2).unwrap();
+            writer.flush().unwrap();
+
+            // Handle error case
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            let req3: Request = serde_json::from_str(&line).unwrap();
+            let resp3 = Response::error(req3.id, "not_found", "pane 99 does not exist");
+            let encoded3 = IpcCodec::encode_response(&resp3).unwrap();
+            writer.write_all(&encoded3).unwrap();
+            writer.flush().unwrap();
+        });
+
+        let mut client = Client::from_stream(client_stream).expect("client init");
+
+        // 1. Call ping
+        let version = client.ping().expect("ping succeeds");
+        assert_eq!(version, "0.1.0");
+
+        // 2. Call split
+        let res = client
+            .call("split", serde_json::json!({"direction": "right"}))
+            .expect("split call succeeds");
+        assert_eq!(res["pane"], 2);
+        assert_eq!(res["tab"], 3);
+
+        // 3. Call with error response
+        let err = client
+            .call("split", serde_json::json!({"pane": 99}))
+            .expect_err("should return RPC error");
+        match err {
+            IpcError::Rpc(e) => {
+                assert_eq!(e.code, "not_found");
+                assert_eq!(e.message, "pane 99 does not exist");
+            }
+            other => panic!("expected Rpc error, got {:?}", other),
+        }
+
+        handle.join().unwrap();
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    #[test]
+    fn test_single_instance_try_connect() {
+        let non_existent = PathBuf::from("/tmp/termin-non-existent-socket-12345.sock");
+        let res = Client::try_connect(&non_existent);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().is_not_running());
     }
 }

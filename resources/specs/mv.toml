@@ -1,0 +1,29 @@
+name = "mv"
+description = "Move (rename) files"
+
+[[options]]
+names = ["-f", "--force"]
+description = "Do not prompt before overwriting"
+
+[[options]]
+names = ["-i", "--interactive"]
+description = "Prompt before overwrite"
+
+[[options]]
+names = ["-n", "--no-clobber"]
+description = "Do not overwrite an existing file"
+
+[[options]]
+names = ["-v", "--verbose"]
+description = "Explain what is being done"
+
+[[args]]
+name = "source"
+variadic = true
+template = "filepaths"
+generators = ["filepaths"]
+
+[[args]]
+name = "destination"
+template = "filepaths"
+generators = ["filepaths", "folders"]

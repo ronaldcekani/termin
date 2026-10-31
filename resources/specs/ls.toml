@@ -1,0 +1,37 @@
+name = "ls"
+description = "List directory contents"
+
+[[options]]
+names = ["-a", "--all"]
+description = "Do not ignore entries starting with ."
+
+[[options]]
+names = ["-l"]
+description = "Use a long listing format"
+
+[[options]]
+names = ["-h", "--human-readable"]
+description = "With -l, print sizes like 1K 234M 2G etc."
+
+[[options]]
+names = ["-r", "--reverse"]
+description = "Reverse order while sorting"
+
+[[options]]
+names = ["-t"]
+description = "Sort by modification time, newest first"
+
+[[options]]
+names = ["-R", "--recursive"]
+description = "List subdirectories recursively"
+
+[[options]]
+names = ["-1"]
+description = "List one file per line"
+
+[[args]]
+name = "file"
+optional = true
+variadic = true
+template = "filepaths"
+generators = ["filepaths"]

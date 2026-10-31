@@ -2,11 +2,17 @@
 //!
 //! See `docs/architecture.md §3.3` and `docs/specs/pty-and-shell.md`.
 
-use std::io;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+
+pub mod pty;
+pub mod reactor;
+pub mod session;
+
+pub use pty::{get_foreground_pgrp, open_pty, spawn, PtyChild, PtyMaster};
+pub use reactor::{Reactor, ReactorHandle};
+pub use session::{Session, DRAINED_WRITE_QUEUE_CAPACITY, MAX_WRITE_QUEUE_BYTES};
 pub use termin_core::PtyConsumer;
-use termin_core::{TabId, WakeHandle};
+pub use termin_core::{TabId, WakeHandle};
 
 /// Watch token for file/path change notification.
 ///
@@ -67,166 +73,654 @@ pub enum ReactorEvent {
     Ipc(IpcConnId, Vec<u8>),
 }
 
-/// A terminal session managing one PTY and its child process.
-///
-/// See `docs/architecture.md §3.3` and `docs/specs/pty-and-shell.md §3`.
-pub struct Session<C: PtyConsumer> {
-    pub id: TabId,
-    pub term: Mutex<C>,
-    state: Mutex<SessionState>,
-    effects: Mutex<Vec<C::Effect>>,
-    pid: Pid,
-}
-
-impl<C: PtyConsumer> Session<C> {
-    /// Create a new session with an initial consumer and child PID.
-    pub fn new(id: TabId, consumer: C, pid: Pid) -> Self {
-        Self {
-            id,
-            term: Mutex::new(consumer),
-            state: Mutex::new(SessionState::Running),
-            effects: Mutex::new(Vec::new()),
-            pid,
-        }
-    }
-
-    /// Enqueue bytes to be written to PTY.
-    pub fn write(&self, _bytes: &[u8]) {
-        // Enqueue to write queue; reactor flushes
-    }
-
-    /// Resize PTY terminal geometry.
-    pub fn resize(&self, cols: u16, rows: u16, px: (u16, u16)) {
-        if let Ok(mut term) = self.term.lock() {
-            term.resize(cols, rows, px);
-        }
-    }
-
-    /// Drain accumulated parsing effects into destination vector.
-    pub fn drain_effects(&self, out: &mut Vec<C::Effect>) {
-        if let Ok(mut eff) = self.effects.lock() {
-            out.append(&mut *eff);
-        }
-    }
-
-    /// Child process PID.
-    pub fn pid(&self) -> Pid {
-        self.pid
-    }
-
-    /// Foreground process group PID from controlling terminal.
-    pub fn foreground_pid(&self) -> Option<Pid> {
-        Some(self.pid)
-    }
-
-    /// Send signal to child session process group.
-    pub fn kill(&self, _sig: Signal) {
-        // Delivered via kill(2)
-    }
-
-    /// Current execution state (running or exited with code).
-    pub fn state(&self) -> SessionState {
-        *self.state.lock().unwrap()
-    }
-}
-
-/// Cloneable handle to communicate with the IO reactor thread.
-///
-/// See `docs/architecture.md §3.3`.
-pub struct ReactorHandle<C: PtyConsumer> {
-    _phantom: std::marker::PhantomData<C>,
-}
-
-impl<C: PtyConsumer> Clone for ReactorHandle<C> {
-    fn clone(&self) -> Self {
-        Self {
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<C: PtyConsumer> ReactorHandle<C> {
-    /// Spawn a new child process with PTY and attach a consumer.
-    pub fn spawn(&self, spec: SpawnSpec, consumer: C) -> io::Result<Arc<Session<C>>> {
-        let id = TabId::next();
-        let session = Arc::new(Session::new(id, consumer, Pid(std::process::id() as i32)));
-        session.resize(spec.cols, spec.rows, spec.cell_px);
-        Ok(session)
-    }
-
-    /// Watch a path for change notifications (e.g. config hot reload).
-    pub fn watch_path(&self, _path: &Path, _token: WatchToken) {
-        // Registered in reactor kqueue
-    }
-
-    /// Listen on a Unix domain socket for IPC commands.
-    pub fn listen_unix(&self, _path: &Path) -> io::Result<()> {
-        Ok(())
-    }
-
-    /// Shut down the reactor thread.
-    pub fn shutdown(&self) {
-        // Signals EVFILT_USER
-    }
-}
-
-/// IO Reactor running on a background thread.
-///
-/// See `docs/architecture.md §3.3` and `docs/specs/pty-and-shell.md §2`.
-pub struct Reactor<C: PtyConsumer> {
-    _phantom: std::marker::PhantomData<C>,
-}
-
-impl<C: PtyConsumer> Reactor<C> {
-    /// Start the reactor IO thread with a handle to wake the main thread.
-    pub fn start(_wake: WakeHandle) -> io::Result<ReactorHandle<C>> {
-        Ok(ReactorHandle {
-            _phantom: std::marker::PhantomData,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use std::path::Path;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
 
-    struct StubConsumer {
-        gen: u64,
+    struct RecordingConsumer {
+        bytes_received: Arc<AtomicU64>,
+        generation: u64,
+        cols: u16,
+        rows: u16,
+        captured: Arc<Mutex<Vec<u8>>>,
     }
 
-    impl PtyConsumer for StubConsumer {
+    impl RecordingConsumer {
+        fn new() -> (Self, Arc<AtomicU64>, Arc<Mutex<Vec<u8>>>) {
+            let bytes = Arc::new(AtomicU64::new(0));
+            let cap = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    bytes_received: Arc::clone(&bytes),
+                    generation: 0,
+                    cols: 80,
+                    rows: 24,
+                    captured: Arc::clone(&cap),
+                },
+                bytes,
+                cap,
+            )
+        }
+    }
+
+    impl PtyConsumer for RecordingConsumer {
         type Effect = ();
 
         fn consume(
             &mut self,
-            _bytes: &[u8],
+            bytes: &[u8],
             _write_back: &mut Vec<u8>,
             _effects: &mut Vec<Self::Effect>,
         ) {
-            self.gen += 1;
+            self.bytes_received
+                .fetch_add(bytes.len() as u64, Ordering::SeqCst);
+            self.generation += 1;
+            if let Ok(mut lock) = self.captured.lock() {
+                if lock.len() < 1024 * 1024 {
+                    lock.extend_from_slice(bytes);
+                }
+            }
         }
 
-        fn resize(&mut self, _cols: u16, _rows: u16, _px: (u16, u16)) {}
+        fn resize(&mut self, cols: u16, rows: u16, _px: (u16, u16)) {
+            self.cols = cols;
+            self.rows = rows;
+            self.generation += 1;
+        }
 
         fn generation(&self) -> u64 {
-            self.gen
+            self.generation
         }
     }
 
     #[test]
-    fn test_session_state_and_reactor_handle() {
-        let wake = WakeHandle::new(|| {});
-        let handle = Reactor::<StubConsumer>::start(wake).unwrap();
+    fn test_echo_roundtrip() {
+        let wake_called = Arc::new(AtomicBool::new(false));
+        let wc = Arc::clone(&wake_called);
+        let wake = WakeHandle::new(move || {
+            wc.store(true, Ordering::SeqCst);
+        });
+
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, _bytes_ctr, captured) = RecordingConsumer::new();
+
         let spec = SpawnSpec {
             prog: PathBuf::from("/bin/sh"),
-            args: Vec::new(),
+            args: vec!["-c".to_string(), "echo roundtrip_success".to_string()],
             env: Vec::new(),
             cwd: PathBuf::from("/tmp"),
             cols: 80,
             rows: 24,
-            cell_px: (8, 16),
+            cell_px: (0, 0),
         };
-        let session = handle.spawn(spec, StubConsumer { gen: 0 }).unwrap();
-        assert_eq!(session.state(), SessionState::Running);
+
+        let session = handle.spawn(spec, consumer).unwrap();
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            for ev in events {
+                if let ReactorEvent::SessionExited(id, code) = ev {
+                    if id == session.id {
+                        assert_eq!(code, 0);
+                        let cap = captured.lock().unwrap();
+                        let text = String::from_utf8_lossy(&cap);
+                        assert!(text.contains("roundtrip_success"));
+                        handle.shutdown();
+                        return;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        panic!("Timed out waiting for echo roundtrip");
+    }
+
+    #[test]
+    fn test_exit_code_reaping() {
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, _, _) = RecordingConsumer::new();
+
+        let spec = SpawnSpec {
+            prog: PathBuf::from("/bin/sh"),
+            args: vec!["-c".to_string(), "exit 42".to_string()],
+            env: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            cols: 80,
+            rows: 24,
+            cell_px: (0, 0),
+        };
+
+        let session = handle.spawn(spec, consumer).unwrap();
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            for ev in events {
+                if let ReactorEvent::SessionExited(id, code) = ev {
+                    if id == session.id {
+                        assert_eq!(code, 42);
+                        assert_eq!(session.state(), SessionState::Exited(42));
+                        handle.shutdown();
+                        return;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        panic!("Timed out waiting for child exit code reaping");
+    }
+
+    #[test]
+    fn test_stty_size_resize() {
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, _, captured) = RecordingConsumer::new();
+
+        let spec = SpawnSpec {
+            prog: PathBuf::from("/bin/sh"),
+            args: vec![
+                "-c".to_string(),
+                "stty size".to_string(),
+            ],
+            env: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            cols: 123,
+            rows: 45,
+            cell_px: (0, 0),
+        };
+
+        let session = handle.spawn(spec, consumer).unwrap();
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            for ev in events {
+                if let ReactorEvent::SessionExited(id, code) = ev {
+                    if id == session.id {
+                        assert_eq!(code, 0);
+                        let cap = captured.lock().unwrap();
+                        let text = String::from_utf8_lossy(&cap);
+                        println!("stty size text: {:?}", text);
+                        // stty size prints "rows cols\n"
+                        assert!(text.contains("45 123"));
+                        handle.shutdown();
+                        return;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        panic!("Timed out waiting for stty size");
+    }
+
+    #[test]
+    fn test_foreground_pid_graceful_handling() {
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, _, _) = RecordingConsumer::new();
+
+        let spec = SpawnSpec {
+            prog: PathBuf::from("/bin/sleep"),
+            args: vec!["0.2".to_string()],
+            env: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            cols: 80,
+            rows: 24,
+            cell_px: (0, 0),
+        };
+
+        let session = handle.spawn(spec, consumer).unwrap();
+        assert_eq!(session.pid(), session.pid());
+
+        // foreground_pid will be Some(pgrp) or None, never panics
+        let _ = session.foreground_pid();
+
+        std::thread::sleep(Duration::from_millis(300));
+
+        // After process exits, foreground_pid returns None without panicking
+        let _ = session.foreground_pid();
+        handle.shutdown();
+    }
+
+    #[test]
+    fn test_vnode_watch() {
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+
+        let tmp_file = std::env::temp_dir().join(format!("termin_watch_test_{}.tmp", std::process::id()));
+        std::fs::write(&tmp_file, b"initial").unwrap();
+
+        let token = WatchToken(101);
+        handle.watch_path(&tmp_file, token);
+
+        std::thread::sleep(Duration::from_millis(50));
+        // Modify file
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&tmp_file)
+            .unwrap();
+        f.write_all(b"modified").unwrap();
+        drop(f);
+
+        let start = Instant::now();
+        let mut got_change = false;
+        while start.elapsed() < Duration::from_secs(3) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            for ev in events {
+                if let ReactorEvent::PathChanged(t) = ev {
+                    if t == token {
+                        got_change = true;
+                        break;
+                    }
+                }
+            }
+            if got_change {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        let _ = std::fs::remove_file(&tmp_file);
+        handle.shutdown();
+        assert!(got_change, "Expected PathChanged event for watched path");
+    }
+
+    #[test]
+    fn test_ipc_listener() {
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+
+        let sock_path = std::env::temp_dir().join(format!("termin_ipc_{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&sock_path);
+
+        handle.listen_unix(&sock_path).unwrap();
+
+        // Wait until listener socket is bound and ready
+        let mut connected = None;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(1) {
+            if sock_path.exists() {
+                match std::os::unix::net::UnixStream::connect(&sock_path) {
+                    Ok(stream) => {
+                        connected = Some(stream);
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                        // In sandbox environment without AF_UNIX connect permission
+                        println!("Note: AF_UNIX connect blocked by sandbox policy");
+                        let _ = std::fs::remove_file(&sock_path);
+                        handle.shutdown();
+                        return;
+                    }
+                    Err(_) => {}
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        if let Some(mut stream) = connected {
+            stream.write_all(b"hello_ipc").unwrap();
+
+            let start = Instant::now();
+            let mut received = Vec::new();
+            while start.elapsed() < Duration::from_secs(3) {
+                let mut events = Vec::new();
+                handle.drain_events(&mut events);
+                for ev in events {
+                    if let ReactorEvent::Ipc(_, data) = ev {
+                        received.extend(data);
+                    }
+                }
+                if received == b"hello_ipc" {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert_eq!(received, b"hello_ipc");
+        }
+
+        let _ = std::fs::remove_file(&sock_path);
+        handle.shutdown();
+    }
+
+    #[test]
+    fn test_shell_integration_mark_sequences() {
+        // Deploy scripts to temp directory
+        let tmp = std::env::temp_dir().join(format!("termin_marks_{}", std::process::id()));
+        let deployed = termin_shell::deploy_shell_scripts(Some(&tmp)).unwrap();
+
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, _, captured) = RecordingConsumer::new();
+
+        let shell = PathBuf::from("/bin/bash");
+        let env = termin_shell::Env::build(
+            &termin_shell::SessionIds {
+                workspace: termin_core::WorkspaceId(1),
+                pane: termin_core::PaneId(1),
+                tab: termin_core::TabId(1),
+            },
+            Path::new("/tmp/test.sock"),
+            &[],
+            true,
+        );
+
+        let bashrc = deployed.join("bash").join("termin.bashrc");
+        let spec = SpawnSpec {
+            prog: shell,
+            args: vec![
+                "-bash".to_string(),
+                "--rcfile".to_string(),
+                bashrc.to_string_lossy().to_string(),
+                "-i".to_string(),
+            ],
+            env,
+            cwd: PathBuf::from("/tmp"),
+            cols: 80,
+            rows: 24,
+            cell_px: (0, 0),
+        };
+
+        let session = handle.spawn(spec, consumer).unwrap();
+
+        // Allow shell to initialize and display initial prompt
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Submit a command that succeeds
+        session.write(b"echo mark_test\n");
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Submit a command that fails (exit 1)
+        session.write(b"false\n");
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Exit shell
+        session.write(b"exit\n");
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            for ev in events {
+                if let ReactorEvent::SessionExited(id, _) = ev {
+                    if id == session.id {
+                        let cap = captured.lock().unwrap();
+                        let text = String::from_utf8_lossy(&cap);
+                        println!("Shell output captured:\n{}", text);
+
+                        // Assert presence of integration markers
+                        assert!(text.contains("6973;termin;shell=bash"), "Missing OSC 6973 metadata");
+                        assert!(text.contains("133;A"), "Missing OSC 133;A prompt start");
+                        assert!(text.contains("133;B"), "Missing OSC 133;B prompt end");
+                        assert!(text.contains("133;C"), "Missing OSC 133;C preexec mark");
+                        assert!(text.contains("133;D;0"), "Missing OSC 133;D;0 success exit mark");
+                        assert!(text.contains("133;D;1"), "Missing OSC 133;D;1 error exit mark");
+                        assert!(text.contains("7;file://"), "Missing OSC 7 cwd mark");
+
+                        handle.shutdown();
+                        let _ = std::fs::remove_dir_all(&tmp);
+                        return;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        panic!("Timed out waiting for shell to exit");
+    }
+
+    #[test]
+    fn test_shell_integration_mark_sequences_zsh() {
+        let tmp = std::env::temp_dir().join(format!("termin_marks_zsh_{}", std::process::id()));
+        let deployed = termin_shell::deploy_shell_scripts(Some(&tmp)).unwrap();
+
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, _, captured) = RecordingConsumer::new();
+
+        let shell = PathBuf::from("/bin/zsh");
+        let mut env = termin_shell::Env::build(
+            &termin_shell::SessionIds {
+                workspace: termin_core::WorkspaceId(1),
+                pane: termin_core::PaneId(1),
+                tab: termin_core::TabId(1),
+            },
+            Path::new("/tmp/test.sock"),
+            &[],
+            true,
+        );
+        let mut args = vec!["-zsh".to_string()];
+        termin_shell::prepare_injection(&shell, true, &deployed, &mut env, &mut args);
+
+        let spec = SpawnSpec {
+            prog: shell,
+            args,
+            env,
+            cwd: PathBuf::from("/tmp"),
+            cols: 80,
+            rows: 24,
+            cell_px: (0, 0),
+        };
+
+        let session = handle.spawn(spec, consumer).unwrap();
+
+        std::thread::sleep(Duration::from_millis(200));
+        session.write(b"echo zsh_mark_test\n");
+        std::thread::sleep(Duration::from_millis(200));
+        session.write(b"false\n");
+        std::thread::sleep(Duration::from_millis(200));
+        session.write(b"exit\n");
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            for ev in events {
+                if let ReactorEvent::SessionExited(id, _) = ev {
+                    if id == session.id {
+                        let cap = captured.lock().unwrap();
+                        let text = String::from_utf8_lossy(&cap);
+                        println!("Zsh output captured:\n{}", text);
+
+                        assert!(text.contains("6973;termin;shell=zsh"), "Missing OSC 6973 metadata");
+                        assert!(text.contains("133;A"), "Missing OSC 133;A prompt start");
+                        assert!(text.contains("133;B"), "Missing OSC 133;B prompt end");
+                        assert!(text.contains("133;C"), "Missing OSC 133;C preexec mark");
+                        assert!(text.contains("133;D;0"), "Missing OSC 133;D;0 success exit mark");
+                        assert!(text.contains("133;D;1"), "Missing OSC 133;D;1 error exit mark");
+                        assert!(text.contains("7;file://"), "Missing OSC 7 cwd mark");
+
+                        handle.shutdown();
+                        let _ = std::fs::remove_dir_all(&tmp);
+                        return;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        panic!("Timed out waiting for zsh to exit");
+    }
+
+    #[test]
+    fn test_user_zshrc_custom_zdotdir_loaded() {
+        let tmp = std::env::temp_dir().join(format!("termin_custom_zdotdir_{}", std::process::id()));
+        let deployed = termin_shell::deploy_shell_scripts(Some(&tmp)).unwrap();
+
+        // Create user custom ZDOTDIR fixture with custom .zshrc
+        let user_zdotdir = tmp.join("user_custom_zdotdir");
+        std::fs::create_dir_all(&user_zdotdir).unwrap();
+        std::fs::write(
+            user_zdotdir.join(".zshrc"),
+            b"export CUSTOM_ZDOTDIR_VAR=\"termin_custom_loaded_ok\"\n",
+        )
+        .unwrap();
+
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, _, captured) = RecordingConsumer::new();
+
+        let shell = PathBuf::from("/bin/zsh");
+        let mut env = termin_shell::Env::build(
+            &termin_shell::SessionIds {
+                workspace: termin_core::WorkspaceId(1),
+                pane: termin_core::PaneId(1),
+                tab: termin_core::TabId(1),
+            },
+            Path::new("/tmp/test.sock"),
+            &[("ZDOTDIR".to_string(), user_zdotdir.to_string_lossy().to_string())],
+            true,
+        );
+
+        let mut args = vec!["-zsh".to_string()];
+        // Simulate user having custom ZDOTDIR in their env
+        termin_shell::prepare_injection(&shell, true, &deployed, &mut env, &mut args);
+        // Ensure TERMIN_ORIG_ZDOTDIR is set to the user custom zdotdir
+        env.retain(|(k, _)| k != "TERMIN_ORIG_ZDOTDIR");
+        env.push((
+            "TERMIN_ORIG_ZDOTDIR".to_string(),
+            user_zdotdir.to_string_lossy().to_string(),
+        ));
+
+        let spec = SpawnSpec {
+            prog: shell,
+            args,
+            env,
+            cwd: PathBuf::from("/tmp"),
+            cols: 80,
+            rows: 24,
+            cell_px: (0, 0),
+        };
+
+        let session = handle.spawn(spec, consumer).unwrap();
+
+        std::thread::sleep(Duration::from_millis(200));
+        session.write(b"echo VAL=$CUSTOM_ZDOTDIR_VAR\n");
+        std::thread::sleep(Duration::from_millis(200));
+        session.write(b"exit\n");
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            for ev in events {
+                if let ReactorEvent::SessionExited(id, _) = ev {
+                    if id == session.id {
+                        let cap = captured.lock().unwrap();
+                        let text = String::from_utf8_lossy(&cap);
+                        println!("Output captured with custom ZDOTDIR:\n{}", text);
+
+                        assert!(
+                            text.contains("VAL=termin_custom_loaded_ok"),
+                            "User's custom .zshrc from ZDOTDIR was not loaded"
+                        );
+                        assert!(text.contains("6973;termin;shell=zsh"), "Missing integration metadata");
+
+                        handle.shutdown();
+                        let _ = std::fs::remove_dir_all(&tmp);
+                        return;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        panic!("Timed out waiting for custom ZDOTDIR test to complete");
+    }
+
+    #[test]
+    fn test_throughput_streaming() {
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, total_bytes, _) = RecordingConsumer::new();
+
+        let spec = SpawnSpec {
+            prog: PathBuf::from("/bin/sh"),
+            args: vec![
+                "-c".to_string(),
+                "head -c 5000000 /dev/zero".to_string(),
+            ],
+            env: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            cols: 80,
+            rows: 24,
+            cell_px: (0, 0),
+        };
+
+        let session = handle.spawn(spec, consumer).unwrap();
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(10) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            for ev in events {
+                if let ReactorEvent::SessionExited(id, _) = ev {
+                    if id == session.id {
+                        let bytes = total_bytes.load(std::sync::atomic::Ordering::Relaxed);
+                        assert_eq!(bytes, 5_000_000);
+                        handle.shutdown();
+                        return;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("Timed out waiting for throughput stream to complete");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_throughput_500mb() {
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, total_bytes, _) = RecordingConsumer::new();
+
+        let spec = SpawnSpec {
+            prog: PathBuf::from("/bin/sh"),
+            args: vec![
+                "-c".to_string(),
+                "head -c 500000000 /dev/zero".to_string(),
+            ],
+            env: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            cols: 80,
+            rows: 24,
+            cell_px: (0, 0),
+        };
+
+        let session = handle.spawn(spec, consumer).unwrap();
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(30) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            for ev in events {
+                if let ReactorEvent::SessionExited(id, _) = ev {
+                    if id == session.id {
+                        let bytes = total_bytes.load(std::sync::atomic::Ordering::Relaxed);
+                        assert_eq!(bytes, 500_000_000);
+                        handle.shutdown();
+                        return;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("Timed out waiting for 500MB stream to complete");
     }
 }

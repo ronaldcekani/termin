@@ -1,0 +1,29 @@
+name = "node"
+description = "Server-side JavaScript runtime environment"
+
+[[options]]
+names = ["--version", "-v"]
+description = "Print Node.js version"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Print node command line options"
+
+[[options]]
+names = ["--eval", "-e"]
+description = "Evaluate script"
+args = [{ name = "script" }]
+
+[[options]]
+names = ["--print", "-p"]
+description = "Evaluate script and print result"
+args = [{ name = "script" }]
+
+[[options]]
+names = ["--watch"]
+description = "Watch input files and restart on change"
+
+[[args]]
+name = "script"
+optional = true
+template = "filepaths"

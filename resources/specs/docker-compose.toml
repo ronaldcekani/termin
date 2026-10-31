@@ -1,0 +1,49 @@
+name = "docker-compose"
+description = "Define and run multi-container applications with Docker"
+
+[[options]]
+names = ["--version", "-v"]
+description = "Show the Docker Compose version information"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Show help"
+
+[[options]]
+names = ["--file", "-f"]
+description = "Specify an alternate compose file"
+args = [{ name = "file", template = "filepaths" }]
+
+[[subcommands]]
+name = "up"
+description = "Create and start containers"
+options = [
+  { names = ["--detach", "-d"], description = "Detached mode: Run containers in the background" },
+  { names = ["--build"], description = "Build images before starting containers" },
+]
+
+[[subcommands]]
+name = "down"
+description = "Stop and remove containers, networks, images, and volumes"
+options = [
+  { names = ["--volumes", "-v"], description = "Remove named volumes declared in the volumes section" },
+]
+
+[[subcommands]]
+name = "ps"
+description = "List containers"
+
+[[subcommands]]
+name = "logs"
+description = "View output from containers"
+options = [
+  { names = ["--follow", "-f"], description = "Follow log output" },
+]
+
+[[subcommands]]
+name = "build"
+description = "Build or rebuild services"
+
+[[subcommands]]
+name = "restart"
+description = "Restart service containers"

@@ -10,11 +10,31 @@ description = "Metal rendering engine, pipeline setup, DrawList presentation for
 [dependencies]
 termin-core.workspace = true
 termin-text.workspace = true
-termin-platform.workspace = true
+# termin-platform.workspace = true
 log.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
-objc2-foundation.workspace = true
-objc2-metal.workspace = true
-objc2-quartz-core.workspace = true
+block2.workspace = true
+objc2-foundation = { workspace = true, features = ["NSString", "NSData", "NSError", "NSArray", "NSURL"] }
+objc2-metal = { workspace = true, features = [
+    "block2",
+    "MTLDevice",
+    "MTLCommandQueue",
+    "MTLCommandBuffer",
+    "MTLCommandEncoder",
+    "MTLRenderCommandEncoder",
+    "MTLRenderPass",
+    "MTLRenderPipeline",
+    "MTLBuffer",
+    "MTLTexture",
+    "MTLBlitCommandEncoder",
+    "MTLBlitPass",
+    "MTLLibrary",
+    "MTLPixelFormat",
+    "MTLResource",
+    "MTLTypes",
+    "MTLDrawable",
+    "MTLSampler",
+] }
+objc2-quartz-core = { workspace = true, features = ["CAMetalLayer", "CALayer", "objc2-metal"] }

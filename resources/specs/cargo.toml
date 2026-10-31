@@ -1,0 +1,133 @@
+name = "cargo"
+description = "Rust package manager"
+
+[[options]]
+names = ["--version", "-V"]
+description = "Print version info and exit"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Prints help information"
+
+[[options]]
+names = ["--quiet", "-q"]
+description = "Do not print cargo log messages"
+
+[[options]]
+names = ["--verbose", "-v"]
+description = "Use verbose output"
+
+[[subcommands]]
+name = "build"
+aliases = ["b"]
+description = "Compile the current package"
+options = [
+  { names = ["--release", "-r"], description = "Build artifacts in release mode, with optimizations" },
+  { names = ["--workspace", "--all"], description = "Build all packages in the workspace" },
+  { names = ["--package", "-p"], description = "Package to build", args = [{ name = "spec" }] },
+  { names = ["--target"], description = "Build for the target triple", args = [{ name = "triple" }] },
+  { names = ["--features", "-F"], description = "Space or comma separated list of features to activate", args = [{ name = "features" }] },
+  { names = ["--all-features"], description = "Activate all available features" },
+  { names = ["--no-default-features"], description = "Do not activate the `default` feature" },
+  { names = ["--jobs", "-j"], description = "Number of parallel jobs", args = [{ name = "n" }] },
+]
+
+[[subcommands]]
+name = "check"
+aliases = ["c"]
+description = "Analyze the current package and report errors, but don't build object files"
+options = [
+  { names = ["--release", "-r"], description = "Check artifacts in release mode" },
+  { names = ["--workspace", "--all"], description = "Check all packages in the workspace" },
+  { names = ["--package", "-p"], description = "Package to check", args = [{ name = "spec" }] },
+  { names = ["--all-targets"], description = "Check all targets" },
+]
+
+[[subcommands]]
+name = "test"
+aliases = ["t"]
+description = "Execute all unit and integration tests and build examples of a local package"
+args = [{ name = "testname", optional = true }]
+options = [
+  { names = ["--release", "-r"], description = "Build artifacts in release mode" },
+  { names = ["--workspace", "--all"], description = "Test all packages in the workspace" },
+  { names = ["--package", "-p"], description = "Package to run tests for", args = [{ name = "spec" }] },
+  { names = ["--doc"], description = "Test only this library's documentation" },
+  { names = ["--no-run"], description = "Compile, but don't run tests" },
+]
+
+[[subcommands]]
+name = "run"
+aliases = ["r"]
+description = "Run a binary or example of the local package"
+options = [
+  { names = ["--release", "-r"], description = "Build artifacts in release mode" },
+  { names = ["--bin"], description = "Name of the bin target to run", args = [{ name = "name" }] },
+  { names = ["--example"], description = "Name of the example target to run", args = [{ name = "name" }] },
+  { names = ["--package", "-p"], description = "Package with the target to run", args = [{ name = "spec" }] },
+]
+
+[[subcommands]]
+name = "clippy"
+description = "Checks a package to catch common mistakes and improve your Rust code"
+options = [
+  { names = ["--workspace", "--all"], description = "Check all packages in the workspace" },
+  { names = ["--fix"], description = "Automatically apply lint suggestions" },
+]
+
+[[subcommands]]
+name = "fmt"
+description = "Format all bin and lib targets of local packages using rustfmt"
+options = [
+  { names = ["--check"], description = "Run in check mode, exiting with 0 only if input is formatted" },
+  { names = ["--all"], description = "Format all packages" },
+]
+
+[[subcommands]]
+name = "clean"
+description = "Remove artifacts that cargo has generated in the past"
+options = [
+  { names = ["--package", "-p"], description = "Package to clean artifacts for", args = [{ name = "spec" }] },
+  { names = ["--release"], description = "Whether or not to clean release artifacts" },
+]
+
+[[subcommands]]
+name = "new"
+description = "Create a new cargo package at <path>"
+args = [{ name = "path", template = "folders" }]
+options = [
+  { names = ["--bin"], description = "Use a binary (application) template [default]" },
+  { names = ["--lib"], description = "Use a library template" },
+  { names = ["--name"], description = "Set the resulting package name", args = [{ name = "name" }] },
+]
+
+[[subcommands]]
+name = "init"
+description = "Create a new cargo package in an existing directory"
+options = [
+  { names = ["--bin"], description = "Use a binary template" },
+  { names = ["--lib"], description = "Use a library template" },
+]
+
+[[subcommands]]
+name = "add"
+description = "Add dependencies to a Cargo.toml manifest file"
+args = [{ name = "crate", variadic = true }]
+options = [
+  { names = ["--dev", "-D"], description = "Add as dev-dependency" },
+  { names = ["--build", "-B"], description = "Add as build-dependency" },
+  { names = ["--features", "-F"], description = "Space or comma separated list of features to activate", args = [{ name = "features" }] },
+]
+
+[[subcommands]]
+name = "remove"
+aliases = ["rm"]
+description = "Remove dependencies from a Cargo.toml manifest file"
+args = [{ name = "crate", variadic = true }]
+
+[[subcommands]]
+name = "update"
+description = "Update dependencies as recorded in the local lock file"
+options = [
+  { names = ["--package", "-p"], description = "Package to update", args = [{ name = "spec" }] },
+]

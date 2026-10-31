@@ -3,232 +3,39 @@
 //! Pure-Rust terminal state machine: grid, scrollback, modes, OSC, blocks.
 //! See `docs/architecture.md §3.2` and `docs/specs/terminal-core.md`.
 
-use bitflags::bitflags;
+pub mod block;
+pub mod cell;
+pub mod damage;
+pub mod grid;
+pub mod input;
+pub mod modes;
+pub mod osc;
+pub mod parser;
+pub mod reflow;
+pub mod row;
+pub mod scrollback;
+pub mod search;
+pub mod selection;
+pub mod style;
+pub mod view;
+
 use smallvec::SmallVec;
-use std::collections::VecDeque;
-use termin_core::{BlockId, KeyEvent, MouseEvent, PtyConsumer};
+use termin_core::{BlockId, KeyEvent, PtyConsumer, Rgba};
+use vte::Parser;
 
-/// Absolute line index in scrollback history.
-///
-/// See `docs/specs/terminal-core.md §3.3`.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct AbsLine(pub u64);
-
-/// Absolute position (line, column) in terminal space.
-///
-/// See `docs/specs/terminal-core.md §3.3`.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AbsPos {
-    pub line: AbsLine,
-    pub col: u16,
-}
-
-bitflags! {
-    /// Per-cell flags (wide char, wrap, protection, etc.).
-    ///
-    /// See `docs/specs/terminal-core.md §2.1`.
-    #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-    pub struct CellFlags: u16 {
-        /// First half of a 2-column wide character.
-        const WIDE        = 1 << 0;
-        /// Second half of a 2-column wide character (renders nothing).
-        const WIDE_SPACER = 1 << 1;
-        /// Soft-wrap continuing into next row.
-        const WRAPLINE    = 1 << 2;
-        /// DECSCA protected cell.
-        const PROTECTED   = 1 << 3;
-        /// Dirty flag hint.
-        const DIRTY_HINT  = 1 << 4;
-    }
-}
-
-/// A single cell in the terminal grid (8 bytes).
-///
-/// See `docs/specs/terminal-core.md §2.1`.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Cell {
-    /// Unicode scalar, or high-bit grapheme table index.
-    pub ch: u32,
-    /// Index into `StyleTable`.
-    pub style: u16,
-    /// Cell flags (wide, wrap, protected).
-    pub flags: CellFlags,
-}
-
-impl Default for Cell {
-    fn default() -> Self {
-        Self {
-            ch: ' ' as u32,
-            style: 0,
-            flags: CellFlags::empty(),
-        }
-    }
-}
-
-/// Color specification for cell style.
-///
-/// See `docs/specs/terminal-core.md §2.2`.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub enum Color {
-    #[default]
-    Default,
-    Indexed(u8),
-    Rgb(u8, u8, u8),
-}
-
-bitflags! {
-    /// Text style attributes (bold, italic, underline, etc.).
-    ///
-    /// See `docs/specs/terminal-core.md §2.2`.
-    #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-    pub struct Attrs: u16 {
-        const BOLD      = 1 << 0;
-        const DIM       = 1 << 1;
-        const ITALIC    = 1 << 2;
-        const UNDERLINE = 1 << 3;
-        const BLINK     = 1 << 4;
-        const INVERSE   = 1 << 5;
-        const HIDDEN    = 1 << 6;
-        const STRIKE    = 1 << 7;
-        const OVERLINE  = 1 << 8;
-    }
-}
-
-/// Cell visual style.
-///
-/// See `docs/specs/terminal-core.md §2.2`.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Style {
-    pub fg: Color,
-    pub bg: Color,
-    pub ul_color: Color,
-    pub attrs: Attrs,
-    pub link: u16,
-}
-
-/// Interned style table.
-///
-/// See `docs/specs/terminal-core.md §2.2`.
-#[derive(Clone, Debug, Default)]
-pub struct StyleTable {
-    styles: Vec<Style>,
-}
-
-impl StyleTable {
-    pub fn new() -> Self {
-        Self {
-            styles: vec![Style::default()],
-        }
-    }
-
-    pub fn get(&self, idx: u16) -> Option<&Style> {
-        self.styles.get(idx as usize)
-    }
-
-    pub fn insert(&mut self, style: Style) -> u16 {
-        if let Some(pos) = self.styles.iter().position(|s| s == &style) {
-            pos as u16
-        } else {
-            let idx = self.styles.len() as u16;
-            self.styles.push(style);
-            idx
-        }
-    }
-}
-
-/// View of a single terminal row.
-///
-/// See `docs/specs/terminal-core.md §2.4`.
-pub struct RowView<'a> {
-    pub cells: &'a [Cell],
-    pub wrapped: bool,
-}
-
-/// Iterator over visible rows.
-///
-/// See `docs/architecture.md §3.2` and `docs/specs/terminal-core.md §1`.
-pub struct GridView<'a> {
-    rows: &'a [Vec<Cell>],
-    idx: usize,
-}
-
-impl<'a> Iterator for GridView<'a> {
-    type Item = RowView<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx < self.rows.len() {
-            let row = &self.rows[self.idx];
-            self.idx += 1;
-            Some(RowView {
-                cells: row.as_slice(),
-                wrapped: false,
-            })
-        } else {
-            None
-        }
-    }
-}
-
-/// Cursor shape.
-///
-/// See `docs/specs/terminal-core.md §4`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum CursorShape {
-    Block,
-    Bar,
-    Underline,
-}
-
-/// Cursor state.
-///
-/// See `docs/specs/terminal-core.md §4`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct CursorState {
-    pub pos: AbsPos,
-    pub shape: CursorShape,
-    pub visible: bool,
-    pub blink: bool,
-}
-
-bitflags! {
-    /// Active terminal modes.
-    ///
-    /// See `docs/specs/terminal-core.md §4`.
-    #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-    pub struct Modes: u32 {
-        const ALT_SCREEN        = 1 << 0;
-        const BRACKETED_PASTE   = 1 << 1;
-        const MOUSE_X10         = 1 << 2;
-        const MOUSE_NORMAL      = 1 << 3;
-        const MOUSE_BUTTON      = 1 << 4;
-        const MOUSE_ANY         = 1 << 5;
-        const MOUSE_SGR         = 1 << 6;
-        const MOUSE_SGR_PIXELS  = 1 << 7;
-        const DECCKM            = 1 << 8;
-        const SYNC_OUTPUT       = 1 << 9;
-    }
-}
-
-/// Damage tracking for visible rows and cursor.
-///
-/// See `docs/specs/terminal-core.md §11`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Damage {
-    pub cursor_moved: bool,
-    pub all: bool,
-    pub scrolled: i32,
-}
-
-/// Scroll position for viewing terminal contents.
-///
-/// See `docs/specs/terminal-core.md §3`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum ScrollPos {
-    Bottom,
-    Lines(u64),
-}
+pub use block::{Block, BlockEvent, BlockFlags, BlockList};
+pub use cell::{AbsLine, AbsPos, Attrs, Cell, CellFlags, Color, Style, GRAPHEME_BIT};
+pub use damage::Damage;
+pub use input::CellMouseEvent;
+pub use modes::{CursorShape, CursorState, KittyKeyboard, Modes, OptionAsAlt};
+pub use row::{Row, RowFlags, RowPool, RowView};
+pub use scrollback::cold::{ColdChunk, ColdTier, StyleRun};
+pub use scrollback::index::{IndexMapper, LineLocation};
+pub use scrollback::Scrollback;
+pub use search::{Match, SearchProgress, SearchQuery};
+pub use selection::{Selection, SelectionKind, DEFAULT_WORD_SEPARATORS};
+pub use style::{GraphemeTable, HyperlinkTable, StyleTable, MAX_STYLES};
+pub use view::{GridView, ScrollPos};
 
 /// Line range for text extraction.
 ///
@@ -239,62 +46,13 @@ pub struct LineRange {
     pub end: AbsLine,
 }
 
-/// Substring or pattern search query.
-///
-/// See `docs/specs/terminal-core.md §9`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SearchQuery {
-    pub text: String,
-    pub case_sensitive: bool,
-    pub whole_word: bool,
-}
-
-/// Search match location.
-///
-/// See `docs/specs/terminal-core.md §9`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Match {
-    pub start: AbsPos,
-    pub end: AbsPos,
-}
-
-/// Selection kind.
-///
-/// See `docs/specs/terminal-core.md §8`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum SelectionKind {
-    Simple,
-    Word,
-    Line,
-    Block(BlockId),
-    Rect,
-}
-
-/// Selection in terminal grid.
-///
-/// See `docs/specs/terminal-core.md §8`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Selection {
-    pub kind: SelectionKind,
-    pub anchor: AbsPos,
-    pub head: AbsPos,
-}
-
-/// Mouse event translated to cell coordinates.
-///
-/// See `docs/specs/terminal-core.md §10`.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct CellMouseEvent {
-    pub pos: AbsPos,
-    pub event: MouseEvent,
-}
-
 /// OSC 52 clipboard policy.
 ///
 /// See `docs/specs/terminal-core.md §5`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum Osc52Policy {
     None,
+    #[default]
     Write,
     ReadWrite,
 }
@@ -320,60 +78,6 @@ impl Default for TerminalConfig {
             cell_px: (8, 16),
             osc52: Osc52Policy::Write,
         }
-    }
-}
-
-/// FinalTerm / OSC 133 command block events.
-///
-/// See `docs/specs/terminal-core.md §6`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum BlockEvent {
-    PromptStarted(BlockId),
-    CommandStarted(BlockId),
-    CommandFinished(BlockId, i32),
-}
-
-/// A command execution block.
-///
-/// See `docs/specs/terminal-core.md §6.2`.
-#[derive(Clone, Debug)]
-pub struct Block {
-    pub id: BlockId,
-    pub prompt_start: AbsLine,
-    pub input_start: Option<AbsLine>,
-    pub output_start: Option<AbsLine>,
-    pub end: Option<AbsLine>,
-    pub command: Option<Box<str>>,
-    pub exit: Option<i32>,
-    pub cwd: Option<Box<str>>,
-}
-
-/// List of command execution blocks.
-///
-/// See `docs/specs/terminal-core.md §6.2`.
-#[derive(Clone, Debug, Default)]
-pub struct BlockList {
-    blocks: VecDeque<Block>,
-}
-
-impl BlockList {
-    pub fn new() -> Self {
-        Self {
-            blocks: VecDeque::new(),
-        }
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &Block> {
-        self.blocks.iter()
-    }
-
-    pub fn len(&self) -> usize {
-        self.blocks.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty()
     }
 }
 
@@ -411,42 +115,123 @@ pub struct Terminal {
     generation: u64,
     damage: Damage,
     modes: Modes,
-    cursor: CursorState,
+    cursor_shape: CursorShape,
+    cursor_blink: bool,
+    kitty: KittyKeyboard,
+    modify_other_keys: u8,
+    option_as_alt: OptionAsAlt,
+    word_separators: String,
+    grid: grid::Grid,
+    alt_grid: grid::Grid,
+    is_alt_screen: bool,
+    scrollback: Scrollback,
     blocks: BlockList,
     styles: StyleTable,
-    rows: Vec<Vec<Cell>>,
+    graphemes: GraphemeTable,
+    hyperlinks: HyperlinkTable,
+    row_pool: RowPool,
+    parser: Parser,
+    palette: [Rgba; 256],
+    default_fg: Rgba,
+    default_bg: Rgba,
+    current_style: Style,
+    current_style_id: u16,
 }
 
 impl Terminal {
     /// Create a new terminal instance with configuration.
     pub fn new(cfg: &TerminalConfig) -> Self {
-        let rows = vec![vec![Cell::default(); cfg.cols as usize]; cfg.rows as usize];
+        let palette = default_ansi_palette();
+        let default_fg = Rgba(0xffffffff);
+        let default_bg = Rgba(0x000000ff);
+
+        let grid = grid::Grid::new(cfg.cols, cfg.rows);
+        let alt_grid = grid::Grid::new(cfg.cols, cfg.rows);
+        let scrollback = Scrollback::new(cfg.cols, cfg.rows, cfg.scrollback_lines);
+        let row_pool = RowPool::new(cfg.cols);
+        let damage = Damage::new(cfg.rows);
+
         Self {
             cfg: cfg.clone(),
             generation: 1,
-            damage: Damage {
-                cursor_moved: false,
-                all: true,
-                scrolled: 0,
-            },
-            modes: Modes::empty(),
-            cursor: CursorState {
-                pos: AbsPos::default(),
-                shape: CursorShape::Block,
-                visible: true,
-                blink: true,
-            },
+            damage,
+            modes: Modes::AUTOWRAP | Modes::CURSOR_VISIBLE,
+            cursor_shape: CursorShape::Block,
+            cursor_blink: true,
+            kitty: KittyKeyboard::new(),
+            modify_other_keys: 0,
+            option_as_alt: OptionAsAlt::Both,
+            word_separators: DEFAULT_WORD_SEPARATORS.to_string(),
+            grid,
+            alt_grid,
+            is_alt_screen: false,
+            scrollback,
             blocks: BlockList::new(),
             styles: StyleTable::new(),
-            rows,
+            graphemes: GraphemeTable::new(),
+            hyperlinks: HyperlinkTable::new(),
+            row_pool,
+            parser: Parser::new(),
+            palette,
+            default_fg,
+            default_bg,
+            current_style: Style::default(),
+            current_style_id: 0,
         }
     }
 
     /// Advance terminal state by parsing incoming PTY bytes.
-    pub fn advance(&mut self, _bytes: &[u8], _sink: &mut impl EffectSink) {
-        // Stub implementation for Phase 0
-        self.generation += 1;
-        self.damage.all = true;
+    pub fn advance(&mut self, bytes: &[u8], sink: &mut impl EffectSink) {
+        let had_dirty = self.damage.all
+            || self.damage.cursor_moved
+            || self.damage.scrolled != 0
+            || self.damage.rows.iter().any(|&d| d);
+
+        {
+            let mut handler = parser::ParserHandler {
+                grid: &mut self.grid,
+                alt_grid: &mut self.alt_grid,
+                is_alt_screen: self.is_alt_screen,
+                scrollback: &mut self.scrollback,
+                blocks: &mut self.blocks,
+                styles: &mut self.styles,
+                graphemes: &mut self.graphemes,
+                hyperlinks: &mut self.hyperlinks,
+                row_pool: &mut self.row_pool,
+                damage: &mut self.damage,
+                modes: &mut self.modes,
+                kitty: &mut self.kitty,
+                modify_other_keys: &mut self.modify_other_keys,
+                cursor_shape: &mut self.cursor_shape,
+                cursor_blink: &mut self.cursor_blink,
+                current_style: self.current_style,
+                current_style_id: self.current_style_id,
+                sink,
+                cfg: &self.cfg,
+                palette: &self.palette,
+                default_fg: self.default_fg,
+                default_bg: self.default_bg,
+                dcs_active: false,
+                dcs_bytes: Vec::new(),
+            };
+
+            self.parser.advance(&mut handler, bytes);
+
+            self.is_alt_screen = handler.is_alt_screen;
+            self.current_style = handler.current_style;
+            self.current_style_id = handler.current_style_id;
+        }
+
+        // Bumping generation: suppressed while ?2026 synchronized output is active
+        if !self.modes.contains(Modes::SYNC_OUTPUT) {
+            let has_dirty = self.damage.all
+                || self.damage.cursor_moved
+                || self.damage.scrolled != 0
+                || self.damage.rows.iter().any(|&d| d);
+            if has_dirty && (!had_dirty || !bytes.is_empty()) {
+                self.generation += 1;
+            }
+        }
     }
 
     /// Resize grid dimensions and pixel geometry.
@@ -454,77 +239,247 @@ impl Terminal {
         self.cfg.cols = cols;
         self.cfg.rows = rows;
         self.cfg.cell_px = cell_px;
-        self.rows = vec![vec![Cell::default(); cols as usize]; rows as usize];
+
+        if self.is_alt_screen {
+            reflow::resize_alt_screen(&mut self.alt_grid, cols, rows, &mut self.row_pool);
+        } else {
+            reflow::reflow_primary(
+                &mut self.grid,
+                &mut self.scrollback,
+                &mut self.blocks,
+                cols,
+                rows,
+                &mut self.row_pool,
+            );
+        }
+
+        self.scrollback.resize(cols, rows);
+        self.damage = Damage::new(rows);
         self.generation += 1;
-        self.damage.all = true;
     }
 
     /// Generation counter incremented on any visible state change.
+    #[inline]
     pub fn generation(&self) -> u64 {
         self.generation
     }
 
     /// Current damage accumulated since last `reset_damage`.
+    #[inline]
     pub fn damage(&self) -> &Damage {
         &self.damage
     }
 
     /// Reset damage after presentation.
+    #[inline]
     pub fn reset_damage(&mut self) {
-        self.damage = Damage::default();
+        self.damage.reset();
     }
 
     /// Iterate over visible rows for a given scroll position.
-    pub fn view(&self, _scroll: ScrollPos) -> GridView<'_> {
-        GridView {
-            rows: &self.rows,
-            idx: 0,
+    pub fn view(&self, scroll: ScrollPos) -> GridView<'_> {
+        if self.is_alt_screen {
+            return GridView::Screen {
+                rows: &self.alt_grid.rows,
+                idx: 0,
+            };
+        }
+
+        match scroll {
+            ScrollPos::Bottom => GridView::Screen {
+                rows: &self.grid.rows,
+                idx: 0,
+            },
+            ScrollPos::Lines(lines) => {
+                let screen_rows = self.grid.rows.len();
+                let hot_len = self.scrollback.hot_len();
+                let lines = (lines as usize).min(hot_len);
+
+                if lines == 0 {
+                    return GridView::Screen {
+                        rows: &self.grid.rows,
+                        idx: 0,
+                    };
+                }
+
+                let mut views = Vec::with_capacity(screen_rows);
+                let hot_start = hot_len.saturating_sub(lines);
+
+                for i in hot_start..hot_len {
+                    if let Some(r) = self.scrollback.get_hot(i) {
+                        views.push(RowView {
+                            cells: &r.cells,
+                            wrapped: r.flags.contains(RowFlags::WRAPPED),
+                        });
+                    }
+                }
+
+                let remaining = screen_rows.saturating_sub(views.len());
+                for i in 0..remaining.min(self.grid.rows.len()) {
+                    let r = &self.grid.rows[i];
+                    views.push(RowView {
+                        cells: &r.cells,
+                        wrapped: r.flags.contains(RowFlags::WRAPPED),
+                    });
+                }
+
+                GridView::Scrolled { views, idx: 0 }
+            }
         }
     }
 
     /// Active modes (alt screen, bracketed paste, mouse, etc.).
+    #[inline]
     pub fn modes(&self) -> Modes {
         self.modes
     }
 
     /// Cursor position, shape, visibility.
     pub fn cursor(&self) -> CursorState {
-        self.cursor
+        let (row, col) = if self.is_alt_screen {
+            (self.alt_grid.cursor_row, self.alt_grid.cursor_col)
+        } else {
+            (self.grid.cursor_row, self.grid.cursor_col)
+        };
+
+        let base = self.scrollback.hot_base_line + self.scrollback.hot_len() as u64;
+        let line = AbsLine(base + row as u64);
+
+        CursorState {
+            pos: AbsPos { line, col },
+            shape: self.cursor_shape,
+            visible: self.modes.contains(Modes::CURSOR_VISIBLE),
+            blink: self.cursor_blink,
+        }
     }
 
     /// List of command execution blocks.
+    #[inline]
     pub fn blocks(&self) -> &BlockList {
         &self.blocks
     }
 
     /// Interned style table.
+    #[inline]
     pub fn styles(&self) -> &StyleTable {
         &self.styles
     }
 
-    /// Extract text across a line range.
-    pub fn text_range(&self, _range: LineRange) -> String {
-        String::new()
+    /// Extract text across an absolute line range.
+    pub fn text_range(&self, range: LineRange) -> String {
+        selection::extract_text_range(
+            range.start,
+            range.end,
+            &self.grid,
+            &self.scrollback,
+            &self.graphemes,
+        )
     }
 
-    /// Perform a search from a starting position.
-    pub fn search(&self, _query: &SearchQuery, _from: AbsPos) -> Option<Match> {
-        None
+    /// Perform a backward search starting from `from`.
+    pub fn search(&self, query: &SearchQuery, from: AbsPos) -> Option<Match> {
+        match search::search_incremental(
+            query,
+            Some(from),
+            usize::MAX,
+            &self.grid,
+            &self.scrollback,
+            &self.graphemes,
+        ) {
+            SearchProgress::Found(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    /// Incremental search step with line budget.
+    pub fn search_step(
+        &self,
+        query: &SearchQuery,
+        cursor: Option<AbsPos>,
+        budget_lines: usize,
+    ) -> SearchProgress {
+        search::search_incremental(
+            query,
+            cursor,
+            budget_lines,
+            &self.grid,
+            &self.scrollback,
+            &self.graphemes,
+        )
     }
 
     /// Encode key event into VT escape sequence bytes.
     pub fn encode_key(&self, ev: &KeyEvent) -> SmallVec<[u8; 16]> {
-        let mut out = SmallVec::new();
-        if let termin_core::Key::Char(c) = ev.key {
-            let mut buf = [0u8; 4];
-            out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
-        }
-        out
+        input::encode_key(
+            ev,
+            self.modes,
+            &self.kitty,
+            self.modify_other_keys,
+            self.option_as_alt,
+        )
     }
 
     /// Encode mouse event into VT escape sequence bytes.
-    pub fn encode_mouse(&self, _ev: &CellMouseEvent) -> Option<SmallVec<[u8; 16]>> {
-        None
+    pub fn encode_mouse(&self, ev: &CellMouseEvent) -> Option<SmallVec<[u8; 16]>> {
+        input::encode_mouse(ev, self.modes)
+    }
+
+    /// Set theme color palette (for OSC 4/10/11 queries).
+    pub fn set_palette(&mut self, palette: &[Rgba; 256], default_fg: Rgba, default_bg: Rgba) {
+        self.palette = *palette;
+        self.default_fg = default_fg;
+        self.default_bg = default_bg;
+    }
+
+    /// Set option-as-alt macOS behavior.
+    pub fn set_option_as_alt(&mut self, opt: OptionAsAlt) {
+        self.option_as_alt = opt;
+    }
+
+    /// Set custom word separators for word selection.
+    pub fn set_word_separators(&mut self, seps: &str) {
+        self.word_separators = seps.to_string();
+    }
+
+    /// Extract command text for a block.
+    pub fn block_command_text(&self, id: BlockId) -> Option<String> {
+        selection::extract_block_command(
+            id,
+            &self.blocks,
+            &self.grid,
+            &self.scrollback,
+            &self.graphemes,
+        )
+    }
+
+    /// Extract output text for a block.
+    pub fn block_output_text(&self, id: BlockId) -> Option<String> {
+        selection::extract_block_output(
+            id,
+            &self.blocks,
+            &self.grid,
+            &self.scrollback,
+            &self.graphemes,
+        )
+    }
+
+    /// Total number of lines currently retained (hot scrollback + visible screen).
+    pub fn total_lines(&self) -> u64 {
+        self.scrollback.hot_base_line
+            + self.scrollback.hot_len() as u64
+            + self.grid.rows.len() as u64
+    }
+
+    pub fn cols(&self) -> u16 {
+        self.cfg.cols
+    }
+
+    pub fn rows(&self) -> u16 {
+        self.cfg.rows
+    }
+
+    pub fn is_alt_screen(&self) -> bool {
+        self.is_alt_screen
     }
 }
 
@@ -560,6 +515,58 @@ impl PtyConsumer for Terminal {
     fn generation(&self) -> u64 {
         self.generation()
     }
+}
+
+/// Generate default 256 ANSI colors palette.
+fn default_ansi_palette() -> [Rgba; 256] {
+    let mut p = [Rgba(0); 256];
+
+    // Standard 16 colors
+    let standard: [u32; 16] = [
+        0x000000ff, // 0 Black
+        0xcd0000ff, // 1 Red
+        0x00cd00ff, // 2 Green
+        0xcdcd00ff, // 3 Yellow
+        0x0000eeff, // 4 Blue
+        0xcd00cdff, // 5 Magenta
+        0x00cdcdff, // 6 Cyan
+        0xe5e5e5ff, // 7 White
+        0x7f7f7fff, // 8 Bright Black
+        0xff0000ff, // 9 Bright Red
+        0x00ff00ff, // 10 Bright Green
+        0xffff00ff, // 11 Bright Yellow
+        0x5c5cffff, // 12 Bright Blue
+        0xff00ffff, // 13 Bright Magenta
+        0x00ffffff, // 14 Bright Cyan
+        0xffffffff, // 15 Bright White
+    ];
+    for (i, &c) in standard.iter().enumerate() {
+        p[i] = Rgba(c);
+    }
+
+    // 6x6x6 color cube (indices 16..231)
+    let steps: [u8; 6] = [0, 95, 135, 175, 215, 255];
+    for r in 0..6 {
+        for g in 0..6 {
+            for b in 0..6 {
+                let idx = 16 + 36 * r + 6 * g + b;
+                let val = ((steps[r] as u32) << 24)
+                    | ((steps[g] as u32) << 16)
+                    | ((steps[b] as u32) << 8)
+                    | 0xff;
+                p[idx] = Rgba(val);
+            }
+        }
+    }
+
+    // 24 grayscale colors (indices 232..255)
+    for i in 0..24 {
+        let val = 8 + i as u8 * 10;
+        let c = ((val as u32) << 24) | ((val as u32) << 16) | ((val as u32) << 8) | 0xff;
+        p[232 + i] = Rgba(c);
+    }
+
+    p
 }
 
 #[cfg(test)]
@@ -599,5 +606,96 @@ mod tests {
         };
         term.advance(b"abc", &mut sink);
         assert_eq!(term.generation(), 2);
+    }
+
+    #[test]
+    fn test_sgr_formatting_and_colors() {
+        let cfg = TerminalConfig::default();
+        let mut term = Terminal::new(&cfg);
+        let mut sink = RecordingSink {
+            written: Vec::new(),
+            effects: Vec::new(),
+        };
+
+        // Bold red text: \x1b[1;31mHello\x1b[0m
+        term.advance(b"\x1b[1;31mHello\x1b[0m", &mut sink);
+
+        let view = term.view(ScrollPos::Bottom);
+        let first_row = view.into_iter().next().unwrap();
+        let first_cell = &first_row.cells[0];
+
+        assert_eq!(first_cell.ch, 'H' as u32);
+        let style = term.styles().get(first_cell.style).unwrap();
+        assert!(style.attrs.contains(Attrs::BOLD));
+        assert_eq!(style.fg, Color::Indexed(1));
+    }
+
+    #[test]
+    fn test_alt_screen_switch() {
+        let cfg = TerminalConfig::default();
+        let mut term = Terminal::new(&cfg);
+        let mut sink = RecordingSink {
+            written: Vec::new(),
+            effects: Vec::new(),
+        };
+
+        // Enter alt screen: \x1b[?1049h
+        term.advance(b"\x1b[?1049hAlt text", &mut sink);
+        assert!(term.is_alt_screen());
+        assert!(term.modes().contains(Modes::ALT_SCREEN));
+
+        // Exit alt screen: \x1b[?1049l
+        term.advance(b"\x1b[?1049l", &mut sink);
+        assert!(!term.is_alt_screen());
+        assert!(!term.modes().contains(Modes::ALT_SCREEN));
+    }
+
+    #[test]
+    fn test_osc_133_blocks() {
+        let cfg = TerminalConfig::default();
+        let mut term = Terminal::new(&cfg);
+        let mut sink = RecordingSink {
+            written: Vec::new(),
+            effects: Vec::new(),
+        };
+
+        // Prompt start: OSC 133;A ST
+        term.advance(b"\x1b]133;A\x1b\\", &mut sink);
+        assert_eq!(term.blocks().len(), 1);
+
+        // Command start: OSC 133;C ST
+        term.advance(b"\x1b]133;C;cmdline_url=echo%20hi\x1b\\", &mut sink);
+
+        // Output text
+        term.advance(b"hi\r\n", &mut sink);
+
+        // Command finished: OSC 133;D;0 ST
+        term.advance(b"\x1b]133;D;0\x1b\\", &mut sink);
+
+        let block = term.blocks().iter().next().unwrap();
+        assert_eq!(block.exit, Some(0));
+        assert_eq!(block.command.as_deref(), Some("echo hi"));
+    }
+
+    #[test]
+    fn test_synchronized_output_suppresses_generation() {
+        let cfg = TerminalConfig::default();
+        let mut term = Terminal::new(&cfg);
+        let mut sink = RecordingSink {
+            written: Vec::new(),
+            effects: Vec::new(),
+        };
+
+        // Enable ?2026 synchronized output
+        term.advance(b"\x1b[?2026h", &mut sink);
+        let gen_before = term.generation();
+
+        // Output inside synchronized block
+        term.advance(b"sync content", &mut sink);
+        assert_eq!(term.generation(), gen_before);
+
+        // Reset ?2026
+        term.advance(b"\x1b[?2026l", &mut sink);
+        assert!(term.generation() > gen_before);
     }
 }

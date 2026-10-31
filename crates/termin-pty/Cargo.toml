@@ -9,5 +9,7 @@ description = "PTY spawning, Session management, and kqueue IO reactor for Termi
 
 [dependencies]
 termin-core.workspace = true
+termin-shell.workspace = true
 rustix.workspace = true
+rustc-hash.workspace = true
 log.workspace = true

@@ -1,0 +1,58 @@
+name = "npm"
+description = "Node package manager"
+
+[[options]]
+names = ["--version", "-v"]
+description = "Show npm version"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Show help"
+
+[[subcommands]]
+name = "install"
+aliases = ["i", "add"]
+description = "Install dependencies or a package"
+args = [{ name = "package", optional = true, variadic = true }]
+options = [
+  { names = ["--save-dev", "-D"], description = "Save to devDependencies" },
+  { names = ["--save-prod", "-P"], description = "Save to dependencies" },
+  { names = ["--global", "-g"], description = "Install globally" },
+  { names = ["--legacy-peer-deps"], description = "Ignore peer dependencies conflict" },
+]
+
+[[subcommands]]
+name = "run"
+aliases = ["run-script"]
+description = "Run arbitrary package scripts"
+args = [{ name = "script", generators = ["npm_scripts"] }]
+
+[[subcommands]]
+name = "test"
+aliases = ["t", "tst"]
+description = "Test a package (runs npm test)"
+
+[[subcommands]]
+name = "start"
+description = "Start a package (runs npm start)"
+
+[[subcommands]]
+name = "uninstall"
+aliases = ["un", "remove", "rm"]
+description = "Remove a package"
+args = [{ name = "package", variadic = true }]
+options = [
+  { names = ["--save-dev", "-D"], description = "Remove from devDependencies" },
+  { names = ["--global", "-g"], description = "Remove globally" },
+]
+
+[[subcommands]]
+name = "init"
+description = "Create a package.json file"
+options = [
+  { names = ["-y", "--yes"], description = "Skip prompts and use defaults" },
+]
+
+[[subcommands]]
+name = "build"
+description = "Build a package (runs npm build)"

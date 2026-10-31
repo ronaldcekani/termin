@@ -1,3 +1,3 @@
 pub mod tokens;
 
-pub use tokens::Tokens;
+pub use tokens::{check_theme_contrast, ContrastViolation, Tokens};

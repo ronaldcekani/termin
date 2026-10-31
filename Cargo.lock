@@ -430,8 +430,10 @@ dependencies = [
 name = "termin"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "termin-app",
  "termin-core",
+ "termin-ipc",
 ]
 
 [[package]]
@@ -457,6 +459,7 @@ dependencies = [
 name = "termin-config"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "serde",
  "termin-core",
  "toml",
@@ -473,9 +476,16 @@ dependencies = [
 name = "termin-editor"
 version = "0.1.0"
 dependencies = [
+ "log",
+ "memchr",
  "nucleo-matcher",
  "rustc-hash",
+ "serde",
+ "serde_json",
+ "smallvec",
  "termin-core",
+ "toml",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -491,6 +501,7 @@ dependencies = [
 name = "termin-persist"
 version = "0.1.0"
 dependencies = [
+ "log",
  "serde",
  "serde_json",
  "termin-core",
@@ -500,12 +511,15 @@ dependencies = [
 name = "termin-platform"
 version = "0.1.0"
 dependencies = [
+ "block2 0.5.1",
  "log",
  "objc2 0.5.3",
  "objc2-app-kit",
  "objc2-foundation 0.2.2",
+ "objc2-metal 0.2.2",
  "objc2-quartz-core",
  "objc2-user-notifications",
+ "rustc-hash",
  "termin-core",
 ]
 
@@ -514,21 +528,23 @@ name = "termin-pty"
 version = "0.1.0"
 dependencies = [
  "log",
+ "rustc-hash",
  "rustix",
  "termin-core",
+ "termin-shell",
 ]
 
 [[package]]
 name = "termin-render"
 version = "0.1.0"
 dependencies = [
+ "block2 0.5.1",
  "log",
  "objc2 0.5.3",
  "objc2-foundation 0.2.2",
  "objc2-metal 0.2.2",
  "objc2-quartz-core",
  "termin-core",
- "termin-platform",
  "termin-text",
 ]
 
@@ -543,11 +559,14 @@ dependencies = [
 name = "termin-text"
 version = "0.1.0"
 dependencies = [
+ "log",
+ "memchr",
  "objc2 0.5.3",
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.2.2",
  "rustc-hash",
+ "smallvec",
  "termin-core",
  "unicode-width",
 ]
@@ -569,10 +588,12 @@ name = "termin-vt"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "log",
  "memchr",
  "rustc-hash",
  "smallvec",
  "termin-core",
+ "unicode-segmentation",
  "unicode-width",
  "vte",
 ]

@@ -11,6 +11,9 @@ description = "Font loading, CoreText shaping, glyph rasterization, and atlas pa
 termin-core.workspace = true
 rustc-hash.workspace = true
 unicode-width.workspace = true
+smallvec.workspace = true
+memchr.workspace = true
+log.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true

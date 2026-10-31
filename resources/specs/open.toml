@@ -1,0 +1,39 @@
+name = "open"
+description = "Open files, directories, and URLs using default application"
+aliases = ["code"]
+
+[[options]]
+names = ["-a"]
+description = "Specifies the application to use for opening the file"
+args = [{ name = "application" }]
+
+[[options]]
+names = ["-b"]
+description = "Specifies the bundle identifier of the application to use"
+args = [{ name = "bundle_id" }]
+
+[[options]]
+names = ["-e"]
+description = "Opens the file with TextEdit"
+
+[[options]]
+names = ["-t"]
+description = "Opens the file with default text editor"
+
+[[options]]
+names = ["-R", "--reveal"]
+description = "Reveals the file(s) in the Finder instead of opening them"
+
+[[options]]
+names = ["-n"]
+description = "Open a new instance of the application even if one is already running"
+
+[[options]]
+names = ["-W", "--wait-apps"]
+description = "Blocks until the used applications have also exited"
+
+[[args]]
+name = "file"
+variadic = true
+template = "filepaths"
+generators = ["filepaths"]

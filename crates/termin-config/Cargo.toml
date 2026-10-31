@@ -11,3 +11,4 @@ description = "Configuration schema, defaults, validation, and diffing for Termi
 termin-core.workspace = true
 serde.workspace = true
 toml.workspace = true
+bitflags.workspace = true

@@ -1,0 +1,70 @@
+name = "brew"
+description = "The Missing Package Manager for macOS (or Linux)"
+
+[[options]]
+names = ["--version", "-v"]
+description = "Print version info"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Show help"
+
+[[subcommands]]
+name = "install"
+description = "Install a formula or cask"
+args = [{ name = "formula", variadic = true }]
+options = [
+  { names = ["--cask"], description = "Treat all named arguments as casks" },
+  { names = ["--formula"], description = "Treat all named arguments as formulae" },
+  { names = ["--HEAD"], description = "Install HEAD version" },
+]
+
+[[subcommands]]
+name = "uninstall"
+aliases = ["remove", "rm"]
+description = "Uninstall a formula or cask"
+args = [{ name = "formula", variadic = true }]
+options = [
+  { names = ["--cask"], description = "Treat all named arguments as casks" },
+  { names = ["--zap"], description = "Delete all files associated with a cask" },
+]
+
+[[subcommands]]
+name = "update"
+description = "Fetch newest version of Homebrew and all formulae from GitHub"
+
+[[subcommands]]
+name = "upgrade"
+description = "Upgrade outdated formulae and casks"
+args = [{ name = "formula", optional = true, variadic = true }]
+options = [
+  { names = ["--cask"], description = "Treat all named arguments as casks" },
+]
+
+[[subcommands]]
+name = "search"
+description = "Perform a substring search of formula and cask names"
+args = [{ name = "text" }]
+
+[[subcommands]]
+name = "list"
+aliases = ["ls"]
+description = "List all installed formulae and casks"
+options = [
+  { names = ["--cask"], description = "List only casks" },
+  { names = ["--formula"], description = "List only formulae" },
+]
+
+[[subcommands]]
+name = "info"
+description = "Display brief statistics for formula or cask"
+args = [{ name = "formula", optional = true }]
+
+[[subcommands]]
+name = "doctor"
+aliases = ["dr"]
+description = "Check your system for potential problems"
+
+[[subcommands]]
+name = "cleanup"
+description = "Remove stale lock files and outdated downloads"

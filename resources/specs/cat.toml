@@ -1,0 +1,21 @@
+name = "cat"
+description = "Concatenate files and print on the standard output"
+
+[[options]]
+names = ["-n", "--number"]
+description = "Number all output lines"
+
+[[options]]
+names = ["-b", "--number-nonblank"]
+description = "Number nonempty output lines"
+
+[[options]]
+names = ["-s", "--squeeze-blank"]
+description = "Suppress repeated empty output lines"
+
+[[args]]
+name = "file"
+optional = true
+variadic = true
+template = "filepaths"
+generators = ["filepaths"]

@@ -15,3 +15,5 @@ rustc-hash.workspace = true
 vte.workspace = true
 memchr.workspace = true
 unicode-width.workspace = true
+unicode-segmentation.workspace = true
+log.workspace = true

@@ -5,7 +5,48 @@
 name = "termin-dark"
 variant = "dark"
 
+[terminal]
+foreground = "#E7EAEE"
+background = "#0C0D0F"
+cursor = "#3FD0C9"
+cursor_text = "#0C0D0F"
+selection_bg = "#3FD0C947"
+selection_fg = "#E7EAEE"
+ansi = [
+    "#1C1E22", # 0: black
+    "#FF6B6B", # 1: red
+    "#4ED38A", # 2: green
+    "#FFC861", # 3: yellow
+    "#6FA0FF", # 4: blue
+    "#D58CFF", # 5: magenta
+    "#3FD0C9", # 6: cyan
+    "#C4C9D0", # 7: white
+    "#525862", # 8: bright black
+    "#FF8C8C", # 9: bright red
+    "#7BE3A8", # 10: bright green
+    "#FFD98A", # 11: bright yellow
+    "#97BBFF", # 12: bright blue
+    "#E3B0FF", # 13: bright magenta
+    "#7DE2DC", # 14: bright cyan
+    "#F4F6F8", # 15: bright white
+]
+
 [ui]
+# Neutral ramp (graphite, slightly cool)
+"n0" = "#0C0D0F"
+"n1" = "#111215"
+"n2" = "#16181B"
+"n3" = "#1C1E22"
+"n4" = "#23262B"
+"n5" = "#2C3036"
+"n6" = "#3A3F47"
+"n7" = "#525862"
+"n8" = "#6E7580"
+"n9" = "#9AA1AB"
+"n10" = "#C4C9D0"
+"n11" = "#E7EAEE"
+
+# Semantic backgrounds
 "bg.app" = "#0C0D0F"
 "bg.sidebar" = "#111215"
 "bg.chrome" = "#111215"
@@ -13,11 +54,55 @@ variant = "dark"
 "bg.surface.hover" = "#1C1E22"
 "bg.elevated" = "#1C1E22"
 "bg.input" = "#111215"
+"bg.selected" = "#3FD0C924"
+"bg.attention" = "#FFB5471A"
+"bg.danger" = "#FF6B6B14"
 
+# Borders
+"border.subtle" = "#1C1E22"
+"border.default" = "#23262B"
+"border.strong" = "#3A3F47"
+"border.focus" = "#3FD0C9"
+"border.attention" = "#FFB547"
+
+# Text
 "text.primary" = "#E7EAEE"
 "text.secondary" = "#9AA1AB"
+"text.tertiary" = "#6E7580"
 "text.muted" = "#6E7580"
+"text.disabled" = "#525862"
+"text.on_accent" = "#062B29"
+"text.link" = "#3FD0C9"
 
+# Icons
+"icon.default" = "#6E7580"
+"icon.hover" = "#C4C9D0"
+
+# Cursor and selection
+"cursor" = "#3FD0C9"
+"selection" = "#3FD0C947"
+
+# Search highlights
+"search.match" = "#FFB5474D"
+"search.current" = "#FFB547A6"
+
+# Chrome decorations
+"scrollbar" = "#3A3F47B3"
+"shadow" = "#00000073"
+
+# Syntax highlighting (input editor)
+"syntax.command" = "#E7EAEE"
+"syntax.command.invalid" = "#FF6B6B"
+"syntax.argument" = "#C4C9D0"
+"syntax.flag" = "#8FB7FF"
+"syntax.string" = "#B8E07A"
+"syntax.variable" = "#E3A6FF"
+"syntax.operator" = "#3FD0C9"
+"syntax.path" = "#C4C9D0"
+"syntax.comment" = "#525862"
+"syntax.ghost" = "#525862"
+
+# Brand and semantic hues
 "accent.tide" = "#3FD0C9"
 "accent.ember" = "#FFB547"
 "status.success" = "#4ED38A"

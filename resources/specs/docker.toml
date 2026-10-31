@@ -1,0 +1,118 @@
+name = "docker"
+description = "Self-sufficient runtime for containers"
+
+[[options]]
+names = ["--version", "-v"]
+description = "Print version information and exit"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Print usage"
+
+[[subcommands]]
+name = "ps"
+description = "List containers"
+options = [
+  { names = ["--all", "-a"], description = "Show all containers (default shows just running)" },
+  { names = ["--quiet", "-q"], description = "Only display container IDs" },
+]
+
+[[subcommands]]
+name = "run"
+description = "Create and run a new container from an image"
+args = [{ name = "image" }, { name = "command", optional = true, variadic = true }]
+options = [
+  { names = ["--detach", "-d"], description = "Run container in background and print container ID" },
+  { names = ["--interactive", "-i"], description = "Keep STDIN open even if not attached" },
+  { names = ["--tty", "-t"], description = "Allocate a pseudo-TTY" },
+  { names = ["--rm"], description = "Automatically remove the container when it exits" },
+  { names = ["--name"], description = "Assign a name to the container", args = [{ name = "name" }] },
+  { names = ["--publish", "-p"], description = "Publish a container's port(s) to the host", args = [{ name = "port" }] },
+  { names = ["--volume", "-v"], description = "Bind mount a volume", args = [{ name = "volume" }] },
+  { names = ["--env", "-e"], description = "Set environment variables", args = [{ name = "env" }] },
+]
+
+[[subcommands]]
+name = "exec"
+description = "Execute a command in a running container"
+args = [{ name = "container" }, { name = "command", variadic = true }]
+options = [
+  { names = ["--interactive", "-i"], description = "Keep STDIN open" },
+  { names = ["--tty", "-t"], description = "Allocate a pseudo-TTY" },
+  { names = ["--detach", "-d"], description = "Detached mode: run command in the background" },
+]
+
+[[subcommands]]
+name = "stop"
+description = "Stop one or more running containers"
+args = [{ name = "container", variadic = true }]
+
+[[subcommands]]
+name = "start"
+description = "Start one or more stopped containers"
+args = [{ name = "container", variadic = true }]
+
+[[subcommands]]
+name = "restart"
+description = "Restart one or more containers"
+args = [{ name = "container", variadic = true }]
+
+[[subcommands]]
+name = "rm"
+description = "Remove one or more containers"
+args = [{ name = "container", variadic = true }]
+options = [
+  { names = ["--force", "-f"], description = "Force the removal of a running container" },
+]
+
+[[subcommands]]
+name = "images"
+description = "List images"
+options = [
+  { names = ["--all", "-a"], description = "Show all images (default hides intermediate images)" },
+]
+
+[[subcommands]]
+name = "rmi"
+description = "Remove one or more images"
+args = [{ name = "image", variadic = true }]
+
+[[subcommands]]
+name = "build"
+description = "Build an image from a Dockerfile"
+args = [{ name = "path", template = "folders" }]
+options = [
+  { names = ["--tag", "-t"], description = "Name and optionally a tag in the 'name:tag' format", args = [{ name = "tag" }] },
+  { names = ["--file", "-f"], description = "Name of the Dockerfile", args = [{ name = "file", template = "filepaths" }] },
+  { names = ["--no-cache"], description = "Do not use cache when building the image" },
+]
+
+[[subcommands]]
+name = "pull"
+description = "Download an image from a registry"
+args = [{ name = "image" }]
+
+[[subcommands]]
+name = "push"
+description = "Upload an image to a registry"
+args = [{ name = "image" }]
+
+[[subcommands]]
+name = "logs"
+description = "Fetch the logs of a container"
+args = [{ name = "container" }]
+options = [
+  { names = ["--follow", "-f"], description = "Follow log output" },
+  { names = ["--tail"], description = "Number of lines to show from the end of the logs", args = [{ name = "n" }] },
+]
+
+[[subcommands]]
+name = "compose"
+description = "Docker Compose container orchestration"
+subcommands = [
+  { name = "up", description = "Create and start containers" },
+  { name = "down", description = "Stop and remove containers, networks" },
+  { name = "ps", description = "List containers" },
+  { name = "logs", description = "View output from containers" },
+  { name = "build", description = "Build or rebuild services" },
+]

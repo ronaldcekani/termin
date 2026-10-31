@@ -10,10 +10,88 @@ description = "Platform abstraction and macOS AppKit integration for Termin"
 [dependencies]
 termin-core.workspace = true
 log.workspace = true
+rustc-hash.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2.workspace = true
-objc2-foundation.workspace = true
-objc2-app-kit.workspace = true
-objc2-quartz-core.workspace = true
-objc2-user-notifications.workspace = true
+objc2 = { workspace = true, features = ["std"] }
+block2 = { workspace = true }
+objc2-foundation = { workspace = true, features = [
+    "NSArray",
+    "NSAttributedString",
+    "NSBundle",
+    "NSData",
+    "NSDate",
+    "NSDictionary",
+    "NSEnumerator",
+    "NSGeometry",
+    "NSNotification",
+    "NSProcessInfo",
+    "NSRange",
+    "NSRunLoop",
+    "NSSet",
+    "NSString",
+    "NSThread",
+    "NSURL",
+    "NSUserDefaults",
+    "NSValue",
+] }
+objc2-app-kit = { workspace = true, features = [
+    "NSAccessibility",
+    "NSAccessibilityConstants",
+    "NSAccessibilityElement",
+    "NSAccessibilityProtocols",
+    "NSAppearance",
+    "NSApplication",
+    "NSColor",
+    "NSCursor",
+    "NSDockTile",
+    "NSDragging",
+    "NSDraggingItem",
+    "NSEvent",
+    "NSGraphics",
+    "NSMenu",
+    "NSMenuItem",
+    "NSPasteboard",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSScreen",
+    "NSTextInputClient",
+    "NSTextInputContext",
+    "NSTrackingArea",
+    "NSUserInterfaceValidation",
+    "NSView",
+    "NSVisualEffectView",
+    "NSWindow",
+    "NSWorkspace",
+    "objc2-quartz-core",
+] }
+objc2-quartz-core = { workspace = true, features = [
+    "CADisplayLink",
+    "CAFrameRateRange",
+    "CALayer",
+    "CAMetalLayer",
+    "CATransaction",
+    "objc2-metal",
+] }
+objc2-metal = { workspace = true, features = [
+    "MTLCommandBuffer",
+    "MTLCommandEncoder",
+    "MTLCommandQueue",
+    "MTLDevice",
+    "MTLDrawable",
+    "MTLPixelFormat",
+    "MTLRenderCommandEncoder",
+    "MTLRenderPass",
+    "MTLTexture",
+    "MTLTypes",
+] }
+objc2-user-notifications = { workspace = true, features = [
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotificationSound",
+    "UNNotificationSettings",
+    "UNNotificationTrigger",
+    "UNUserNotificationCenter",
+    "block2",
+] }

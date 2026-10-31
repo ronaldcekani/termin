@@ -1,0 +1,45 @@
+name = "bun"
+description = "Incredibly fast JavaScript & TypeScript runtime, bundler, test runner, and package manager"
+
+[[options]]
+names = ["--version", "-v"]
+description = "Print version"
+
+[[options]]
+names = ["--help", "-h"]
+description = "Print help"
+
+[[subcommands]]
+name = "run"
+description = "Run a script, file, or package"
+args = [{ name = "script", generators = ["npm_scripts", "filepaths"] }]
+
+[[subcommands]]
+name = "install"
+aliases = ["i"]
+description = "Install dependencies"
+
+[[subcommands]]
+name = "add"
+aliases = ["a"]
+description = "Add a dependency to package.json"
+args = [{ name = "package", variadic = true }]
+options = [
+  { names = ["--development", "-d"], description = "Add to devDependencies" },
+]
+
+[[subcommands]]
+name = "remove"
+aliases = ["rm"]
+description = "Remove a dependency from package.json"
+args = [{ name = "package", variadic = true }]
+
+[[subcommands]]
+name = "test"
+description = "Run tests with bun test runner"
+args = [{ name = "filter", optional = true }]
+
+[[subcommands]]
+name = "build"
+description = "Bundle TypeScript & JavaScript into a single file"
+args = [{ name = "entrypoint", template = "filepaths" }]
