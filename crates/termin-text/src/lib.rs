@@ -162,6 +162,26 @@ pub trait FontBackend {
     }
     fn shape(&mut self, f: FontId, text: &str, ligatures: bool, out: &mut Vec<ShapedGlyph>);
     fn rasterize(&mut self, g: GlyphRef, scale: f32, out: &mut RasterBuf) -> RasterInfo;
+    /// Resolve the proportional system UI font (SF Pro on macOS) at `size_pt`.
+    /// `bold` selects the emphasized (semibold) system font. Backends without a UI font
+    /// fall back to the default (monospace) face.
+    fn resolve_ui(&mut self, size_pt: f32, bold: bool) -> FontId {
+        self.resolve(&FontSpec {
+            family: None,
+            size_pt,
+            weight: if bold {
+                FontWeight::Bold
+            } else {
+                FontWeight::Regular
+            },
+            italic: false,
+        })
+    }
+    /// Horizontal advance of glyph `g` of font `f` in points. Monospace backends return the
+    /// cell width.
+    fn glyph_advance(&mut self, f: FontId, _g: GlyphRef) -> f32 {
+        self.metrics(f).cell_width
+    }
 }
 
 #[cfg(test)]

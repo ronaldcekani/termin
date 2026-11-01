@@ -1,6 +1,6 @@
 //! Individual tab chip drawing.
 use crate::{
-    draw::{draw_text_mono, icons, rounded_quad, solid_quad},
+    draw::{draw_text_ui, icons, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -100,13 +100,12 @@ pub fn draw_tab<B: FontBackend>(
     } else {
         rect.w - 40.0
     };
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         title,
         rect.x + 29.0,
-        cy - fonts.geo.cell_h * 0.5,
+        cy - fonts.ui.geo.cell_h * 0.5,
         title_w.max(0.0),
         if state.active {
             tokens.text_primary

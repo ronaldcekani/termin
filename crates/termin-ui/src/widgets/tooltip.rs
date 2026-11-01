@@ -1,6 +1,6 @@
 //! Tooltip drawing primitive. Delay and hover ownership remain in the app.
 use crate::{
-    draw::{draw_text_mono, rounded_quad},
+    draw::{draw_text_ui, measure_text_ui, rounded_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -27,26 +27,24 @@ pub fn draw_tooltip<B: FontBackend>(
         1.0,
         tokens.border_subtle,
     ));
-    let shortcut_w = shortcut.map_or(0.0, |s| (s.chars().count() as f32 + 1.0) * fonts.geo.cell_w);
-    draw_text_mono(
+    let shortcut_w = shortcut.map_or(0.0, |s| measure_text_ui(cache, &fonts.ui, s) + 8.0);
+    draw_text_ui(
         cache,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         text,
         rect.x + 8.0,
-        rect.y + (rect.h - fonts.geo.cell_h) * 0.5,
+        rect.y + (rect.h - fonts.ui.geo.cell_h) * 0.5,
         (rect.w - 16.0 - shortcut_w).max(0.0),
         tokens.text_primary,
         layer,
     );
     if let Some(s) = shortcut {
-        draw_text_mono(
+        draw_text_ui(
             cache,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             s,
             rect.right() - shortcut_w - 4.0,
-            rect.y + (rect.h - fonts.geo.cell_h) * 0.5,
+            rect.y + (rect.h - fonts.ui.geo.cell_h) * 0.5,
             shortcut_w,
             tokens.text_tertiary,
             layer,

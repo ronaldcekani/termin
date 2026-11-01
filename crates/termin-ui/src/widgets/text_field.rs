@@ -1,7 +1,7 @@
-//! Single-line inline text field (rename editor): editing logic plus a mono-grid renderer.
+//! Single-line inline text field (rename editor): editing logic plus a proportional-text renderer.
 
 use crate::{
-    draw::{draw_text_mono, rounded_quad, solid_quad},
+    draw::{draw_text_ui, measure_text_ui, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -252,45 +252,49 @@ pub fn draw_text_field<B: FontBackend>(
         1.0,
         tokens.accent_tide,
     ));
-    let cell_w = fonts.geo.cell_w;
-    let cell_h = fonts.geo.cell_h;
+    let ui = &fonts.ui;
+    let cell_h = ui.geo.cell_h;
     let pad = 6.0;
-    let cols = (((rect.w - 2.0 * pad) / cell_w).floor() as usize).max(1);
-    let start = field.view_start(cols);
+    let avail = (rect.w - 2.0 * pad).max(1.0);
     let tx = rect.x + pad;
     let ty = rect.y + ((rect.h - cell_h) * 0.5).max(0.0);
-    if let Some((s, e)) = field.selection() {
-        let (s, e) = (s.max(start), e.min(start + cols));
-        if e > s {
-            layer.quads.push(solid_quad(
-                tx + (s - start) as f32 * cell_w,
-                ty,
-                (e - s) as f32 * cell_w,
-                cell_h,
-                tokens.bg_selected,
-            ));
+    let text = field.text();
+    // Byte offset of char index `i` (clamped to the end).
+    let byte_at = |i: usize| text.char_indices().nth(i).map_or(text.len(), |(b, _)| b);
+    // Scroll horizontally (drop leading chars) until the caret fits with room for an
+    // ellipsis; caret and selection x positions come from measured advances.
+    let caret = field.caret();
+    let reserve = 8.0;
+    let mut start = 0usize;
+    let mut caret_w = measure_text_ui(glyphs, ui, &text[..byte_at(caret)]);
+    if caret_w > avail - reserve {
+        for c in text.chars().take(caret) {
+            if caret_w <= avail - reserve {
+                break;
+            }
+            let g = glyphs.backend.glyph(ui.font, c);
+            caret_w -= glyphs.backend.glyph_advance(ui.font, g);
+            start += 1;
         }
     }
-    let visible: String = field.text().chars().skip(start).take(cols).collect();
-    draw_text_mono(
-        glyphs,
-        fonts.font,
-        &fonts.geo,
-        &visible,
-        tx,
-        ty,
-        cols as f32 * cell_w + 0.5,
-        tokens.text_primary,
-        layer,
-    );
+    let vis = &text[byte_at(start)..];
+    if let Some((s, e)) = field.selection() {
+        let (s, e) = (s.max(start), e.max(start));
+        let x0 = measure_text_ui(glyphs, ui, &text[byte_at(start)..byte_at(s)]);
+        let x1 = measure_text_ui(glyphs, ui, &text[byte_at(start)..byte_at(e)]);
+        let x1 = x1.min(avail);
+        if x1 > x0 {
+            layer
+                .quads
+                .push(solid_quad(tx + x0, ty, x1 - x0, cell_h, tokens.bg_selected));
+        }
+    }
+    draw_text_ui(glyphs, ui, vis, tx, ty, avail, tokens.text_primary, layer);
     if caret_visible {
-        layer.quads.push(solid_quad(
-            tx + (field.caret() - start) as f32 * cell_w,
-            ty,
-            1.5,
-            cell_h,
-            tokens.text_primary,
-        ));
+        let cx = (tx + caret_w).round();
+        layer
+            .quads
+            .push(solid_quad(cx, ty, 1.5, cell_h, tokens.text_primary));
     }
 }
 

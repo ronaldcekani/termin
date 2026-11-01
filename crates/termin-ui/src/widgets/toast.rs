@@ -1,6 +1,6 @@
 //! Ephemeral confirmation toast renderer.
 use crate::{
-    draw::{draw_text_mono, rounded_quad},
+    draw::{draw_text_ui, measure_text_ui, rounded_quad},
     terminal_view::TermFonts,
     theme::Tokens,
 };
@@ -15,7 +15,7 @@ pub fn draw<B: FontBackend>(
     glyphs: &mut GlyphCache<B>,
     layer: &mut Layer,
 ) {
-    let w = (message.chars().count() as f32 * fonts.geo.cell_w + 28.0).clamp(160.0, 420.0);
+    let w = (measure_text_ui(glyphs, &fonts.ui, message) + 28.0).clamp(160.0, 420.0);
     let x = rect.x + (rect.w - w) * 0.5;
     let y = rect.bottom() - 52.0;
     layer.quads.push(rounded_quad(
@@ -28,13 +28,12 @@ pub fn draw<B: FontBackend>(
         0.0,
         tokens.border_subtle,
     ));
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         message,
         x + 14.0,
-        y + 7.0,
+        y + (28.0 - fonts.ui.geo.cell_h) * 0.5,
         w - 28.0,
         tokens.text_primary,
         layer,

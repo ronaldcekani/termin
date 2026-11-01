@@ -561,6 +561,15 @@ mod routing_tests {
             },
             underline_y: 13.0,
             underline_h: 1.0,
+            ui: termin_ui::draw::UiFont {
+                font: FontId(0),
+                geo: CellGeometry {
+                    cell_w: 8.0,
+                    cell_h: 16.0,
+                    baseline: 12.0,
+                    scale: 2.0,
+                },
+            },
         }
     }
 

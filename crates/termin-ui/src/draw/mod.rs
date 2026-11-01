@@ -7,7 +7,7 @@ pub mod icons;
 
 use termin_core::Rgba;
 use termin_render::{GlyphInst, Layer, QuadInst};
-use termin_text::{AtlasKind, FontBackend, FontId, GlyphCache, GlyphRef};
+use termin_text::{AtlasKind, FontBackend, FontId, FontMetrics, GlyphCache, GlyphRef};
 
 /// Axis-aligned solid rectangle.
 #[inline]
@@ -181,6 +181,99 @@ pub fn draw_text_mono<B: FontBackend>(
     }
     let _ = drawn;
     pen - x
+}
+
+/// Proportional UI font (system sans) used for chrome text: tab titles, labels,
+/// placeholders. `geo.cell_w` is the advance of `0` (useful as an em estimate);
+/// `geo.cell_h` is the line height; `geo.baseline` is the baseline offset from the line top.
+#[derive(Copy, Clone, Debug)]
+pub struct UiFont {
+    pub font: FontId,
+    pub geo: CellGeometry,
+}
+
+impl UiFont {
+    /// Derive line geometry from backend metrics (points) at backing `scale`.
+    pub fn new(font: FontId, m: &FontMetrics, scale: f32) -> Self {
+        let snap = |v: f32| (v * scale).round() / scale;
+        let cell_h = snap(m.cell_height.max(1.0));
+        let content = m.ascent + m.descent;
+        let baseline = snap(((cell_h - content) * 0.5 + m.ascent).max(m.ascent.min(cell_h)));
+        Self {
+            font,
+            geo: CellGeometry {
+                cell_w: m.cell_width.max(1.0),
+                cell_h,
+                baseline,
+                scale,
+            },
+        }
+    }
+}
+
+/// Width in points of `text` set in the UI font (no truncation).
+pub fn measure_text_ui<B: FontBackend>(cache: &mut GlyphCache<B>, ui: &UiFont, text: &str) -> f32 {
+    let mut w = 0.0;
+    for c in text.chars() {
+        let gr = cache.backend.glyph(ui.font, c);
+        w += cache.backend.glyph_advance(ui.font, gr);
+    }
+    w
+}
+
+/// Draw one line of proportional UI text with its line box top-left at `(x, y)` (points,
+/// line height `ui.geo.cell_h`). Text wider than `max_w` is truncated with `…`. Pen positions
+/// are snapped to device pixels so stems stay crisp. Returns the drawn width in points.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_text_ui<B: FontBackend>(
+    cache: &mut GlyphCache<B>,
+    ui: &UiFont,
+    text: &str,
+    x: f32,
+    y: f32,
+    max_w: f32,
+    color: Rgba,
+    layer: &mut Layer,
+) -> f32 {
+    let scale = ui.geo.scale;
+    let ellipsis = cache.backend.glyph(ui.font, '…');
+    let ell_w = cache.backend.glyph_advance(ui.font, ellipsis);
+    // Pass 1: total width and the longest prefix that leaves room for the ellipsis.
+    let mut total = 0.0;
+    let mut cut = 0usize;
+    for (i, c) in text.char_indices() {
+        if total + ell_w <= max_w {
+            cut = i;
+        }
+        let gr = cache.backend.glyph(ui.font, c);
+        total += cache.backend.glyph_advance(ui.font, gr);
+    }
+    let truncated = total > max_w;
+    let end = if truncated { cut } else { text.len() };
+    let mut pen = 0.0f32;
+    let emit = |gr: GlyphRef, pen: f32, cache: &mut GlyphCache<B>, layer: &mut Layer| {
+        let px = x + (pen * scale).round() / scale;
+        if let Some((inst, is_color)) = place_glyph(cache, ui.font, gr, &ui.geo, px, y, color) {
+            if is_color {
+                layer.color_glyphs.push(inst);
+            } else {
+                layer.glyphs.push(inst);
+            }
+        }
+    };
+    for c in text[..end].chars() {
+        let gr = cache.backend.glyph(ui.font, c);
+        let adv = cache.backend.glyph_advance(ui.font, gr);
+        if c != ' ' {
+            emit(gr, pen, cache, layer);
+        }
+        pen += adv;
+    }
+    if truncated {
+        emit(ellipsis, pen, cache, layer);
+        pen += ell_w;
+    }
+    pen
 }
 
 #[cfg(test)]

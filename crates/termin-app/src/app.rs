@@ -10,7 +10,12 @@ use termin_platform::{ActionId, AppHandler, PlatformCx, PlatformEvent, RenderTar
 use termin_pty::{Reactor, ReactorEvent, ReactorHandle, Session};
 use termin_render::MetalRenderer;
 use termin_text::{CoreTextBackend, FontBackend, FontSpec, GlyphCache};
-use termin_ui::{PaneRenderCache, RowInstances, TermFonts, TermPalette, Tokens};
+use termin_ui::{PaneRenderCache, RowInstances, TermFonts, TermPalette, Tokens, UiFont};
+
+/// Point size of the proportional chrome font (tab titles, labels).
+const UI_FONT_SIZE: f32 = 12.0;
+/// Glyph coverage boost applied in the shader when `font.thicken` is on.
+const CONTRAST_BOOST: f32 = 0.4;
 use termin_vt::Terminal;
 
 use crate::block_mode::{BlockMode, KeyOutcome};
@@ -87,7 +92,10 @@ impl App {
         };
         let font_id = backend.resolve(&font_spec);
         let metrics = backend.metrics(font_id);
-        let fonts = TermFonts::new(font_id, &metrics, 2.0);
+        backend.thicken = config.font.thicken;
+        let ui_font = backend.resolve_ui(UI_FONT_SIZE, false);
+        let ui = UiFont::new(ui_font, &backend.metrics(ui_font), 2.0);
+        let fonts = TermFonts::new(font_id, &metrics, 2.0).with_ui(ui);
 
         let glyphs = GlyphCache::new(backend);
         let theme = parse_theme(BUILTIN_TERMIN_DARK).unwrap_or_default();
@@ -314,8 +322,16 @@ impl App {
         };
         let font_id = self.glyphs.backend.resolve(&spec);
         let metrics = self.glyphs.backend.metrics(font_id);
-        self.fonts = TermFonts::new(font_id, &metrics, self.fonts.geo.scale);
+        let scale = self.fonts.geo.scale;
+        let ui = self.build_ui_font(scale);
+        self.fonts = TermFonts::new(font_id, &metrics, scale).with_ui(ui);
         self.invalidate_render_caches();
+    }
+
+    /// Resolve the proportional chrome font at the current backing scale.
+    fn build_ui_font(&mut self, scale: f32) -> UiFont {
+        let id = self.glyphs.backend.resolve_ui(UI_FONT_SIZE, false);
+        UiFont::new(id, &self.glyphs.backend.metrics(id), scale)
     }
 
     fn invalidate_render_caches(&mut self) {
@@ -345,7 +361,8 @@ impl App {
         };
         let font_id = self.glyphs.backend.resolve(&spec);
         let metrics = self.glyphs.backend.metrics(font_id);
-        self.fonts = TermFonts::new(font_id, &metrics, scale);
+        let ui = self.build_ui_font(scale);
+        self.fonts = TermFonts::new(font_id, &metrics, scale).with_ui(ui);
         self.invalidate_render_caches();
         self.resize_times.clear();
     }
@@ -366,7 +383,12 @@ impl AppHandler for App {
 
         // 2. Initialize Metal renderer
         match MetalRenderer::new() {
-            Ok(renderer) => {
+            Ok(mut renderer) => {
+                renderer.set_contrast_boost(if self.config.font.thicken {
+                    CONTRAST_BOOST
+                } else {
+                    0.0
+                });
                 self.renderer = Some(renderer);
             }
             Err(e) => {

@@ -10,7 +10,7 @@ use termin_text::{FontBackend, FontId, FontMetrics, GlyphCache};
 use termin_vt::{Attrs, Cell, CellFlags, StyleTable, Terminal};
 
 use super::palette::TermPalette;
-use crate::draw::{place_glyph, solid_quad, CellGeometry};
+use crate::draw::{place_glyph, solid_quad, CellGeometry, UiFont};
 
 /// Font + cell geometry for the terminal grid.
 #[derive(Copy, Clone, Debug)]
@@ -20,6 +20,8 @@ pub struct TermFonts {
     /// Underline top offset from the row top, in points.
     pub underline_y: f32,
     pub underline_h: f32,
+    /// Proportional UI font for chrome text (tabs, labels, placeholders).
+    pub ui: UiFont,
 }
 
 impl TermFonts {
@@ -42,7 +44,23 @@ impl TermFonts {
             },
             underline_y: ul,
             underline_h: thick,
+            // Monospace stand-in until `with_ui` supplies the proportional UI font.
+            ui: UiFont {
+                font,
+                geo: CellGeometry {
+                    cell_w,
+                    cell_h,
+                    baseline,
+                    scale,
+                },
+            },
         }
+    }
+
+    /// Replace the chrome text font.
+    pub fn with_ui(mut self, ui: UiFont) -> Self {
+        self.ui = ui;
+        self
     }
 }
 

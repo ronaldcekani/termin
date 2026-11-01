@@ -76,6 +76,11 @@ pub struct CFRange {
 
 pub const kCTFontUIFontSystem: u32 = 0;
 pub const kCTFontUIFontUserFixedPitch: u32 = 1;
+/// `kCTFontUIFontSystem` proper (SF Pro on current macOS); the constant above named
+/// `kCTFontUIFontSystem` is historically the 'user' font class.
+pub const kCTFontUIFontSystemReal: u32 = 2;
+/// `kCTFontUIFontEmphasizedSystem` (semibold system font).
+pub const kCTFontUIFontEmphasizedSystem: u32 = 3;
 
 pub const kCTFontItalicTrait: u32 = 1 << 0;
 pub const kCTFontBoldTrait: u32 = 1 << 1;

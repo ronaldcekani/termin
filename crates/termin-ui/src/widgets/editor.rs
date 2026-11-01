@@ -1,7 +1,7 @@
 //! Draw-only input editor widget (state and event routing live in the app).
 
 use crate::{
-    draw::{draw_text_mono, solid_quad},
+    draw::{draw_text_mono, draw_text_ui, solid_quad},
     terminal_view::TermFonts,
     Tokens,
 };
@@ -53,13 +53,12 @@ impl EditorWidget {
             );
         }
         if state.text.is_empty() {
-            draw_text_mono(
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                &fonts.ui,
                 "Type a command…",
                 rect.x + 14.0,
-                rect.y + 8.0,
+                rect.y + 8.0 + (line_h - fonts.ui.geo.cell_h) * 0.5,
                 rect.w - 28.0,
                 tokens.text_tertiary,
                 layer,
