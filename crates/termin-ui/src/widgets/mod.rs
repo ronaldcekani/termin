@@ -2,11 +2,13 @@
 
 pub mod completion_menu;
 pub mod editor;
+pub mod folder_search;
 pub mod pane;
 pub mod scrollbar;
 pub mod sidebar;
 pub mod tab;
 pub mod tabstrip;
+pub mod titlebar;
 pub mod text_field;
 pub mod workspace_card;
 

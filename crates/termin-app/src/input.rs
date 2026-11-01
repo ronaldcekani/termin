@@ -261,11 +261,6 @@ pub fn handle_window_mouse(
         if let Some(window) = model.windows.get(win_id) {
             if window.sidebar_visible {
                 let sidebar = window.sidebar_rect();
-                let add = Rect::new(sidebar.right() - 30.0, sidebar.y + 9.0, 24.0, 24.0);
-                if add.contains(ev.pos) {
-                    model.new_workspace(win_id, None);
-                    return true;
-                }
                 if ev.pos.x >= sidebar.x && ev.pos.x < sidebar.right() {
                     return true;
                 }
@@ -374,7 +369,7 @@ fn workspace_at(
     if !window.sidebar_visible || !window.sidebar_rect().contains(pos) {
         return None;
     }
-    let mut y = window.sidebar_rect().y + 42.0;
+    let mut y = window.sidebar_rect().y + termin_ui::widgets::sidebar::CARDS_TOP;
     for &ws_id in &window.workspaces {
         let ws = model.workspaces.get(ws_id)?;
         let lines = 1

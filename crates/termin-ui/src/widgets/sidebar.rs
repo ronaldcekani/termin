@@ -1,13 +1,16 @@
 //! Workspace sidebar rendering primitives (app-model-and-ui.md §3).
 
 use crate::{
-    draw::{draw_text_mono, icons, rounded_quad, solid_quad},
+    draw::{draw_text_mono, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
 use termin_core::{Rect, Rgba, WorkspaceId};
 use termin_render::Layer;
 use termin_text::{FontBackend, GlyphCache};
+
+/// Offset of the first workspace card below the sidebar's top edge.
+pub const CARDS_TOP: f32 = 8.0;
 
 /// Data supplied by the app for one workspace card.
 pub struct SidebarWorkspace<'a> {
@@ -23,9 +26,6 @@ pub struct SidebarWorkspace<'a> {
 }
 
 /// Render a window's workspace list. Returns workspace card rectangles in sidebar order.
-/// Width reserved at the sidebar's top-left for the window's traffic-light buttons.
-const TRAFFIC_LIGHTS_W: f32 = 78.0;
-
 pub fn draw_sidebar<B: FontBackend>(
     sidebar: Rect,
     workspaces: &[SidebarWorkspace<'_>],
@@ -51,33 +51,8 @@ pub fn draw_sidebar<B: FontBackend>(
         sidebar.h,
         tokens.border_subtle,
     ));
-    // Header band is 38pt tall, aligned with the traffic-light row and the
-    // pane tab strip; content is vertically centered on cy.
-    let cy = sidebar.y + 20.5;
-    layer.quads.push(solid_quad(
-        sidebar.x,
-        sidebar.y + 37.0,
-        sidebar.w - 1.0,
-        1.0,
-        tokens.border_subtle,
-    ));
-    // The title starts right of the macOS traffic lights (x 8..70 in the transparent titlebar).
-    let title_x = sidebar.x + TRAFFIC_LIGHTS_W;
-    draw_text_mono(
-        glyphs,
-        fonts.font,
-        &fonts.geo,
-        "Workspaces",
-        title_x,
-        cy - fonts.geo.cell_h * 0.5,
-        (sidebar.right() - 36.0 - title_x).max(0.0),
-        tokens.text_secondary,
-        layer,
-    );
-    // "+" button hit box is [right - 30, right - 6] (see input.rs / frame.rs drag regions).
-    icons::plus(layer, sidebar.right() - 18.0, cy, 11.0, tokens.icon_default);
     let mut hits = Vec::with_capacity(workspaces.len());
-    let mut y = sidebar.y + 42.0;
+    let mut y = sidebar.y + CARDS_TOP;
     for ws in workspaces {
         let id = ws.id;
         let focused = ws.active;

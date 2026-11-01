@@ -7,6 +7,8 @@ pub mod app;
 pub mod block_mode;
 pub mod controllers;
 pub mod dispatch;
+pub mod folder_search;
+pub mod frecency;
 pub mod frame;
 pub mod input;
 pub mod keymap;

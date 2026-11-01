@@ -103,6 +103,25 @@ impl BlockMode {
         self.tabs.retain(|id, _| alive(*id));
     }
 
+    /// Recent distinct non-empty history cwds, newest first (only if history is already loaded).
+    pub fn history_cwds(&self, limit: usize) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        if !self.history_loaded {
+            return out;
+        }
+        for i in (0..self.history.len()).rev().take(5000) {
+            if out.len() >= limit {
+                break;
+            }
+            if let Some(cwd) = self.history.get_cwd(i) {
+                if !cwd.is_empty() && !out.iter().any(|c| c == cwd) {
+                    out.push(cwd.to_string());
+                }
+            }
+        }
+        out
+    }
+
     fn ensure_history(&mut self) {
         if self.history_loaded {
             return;

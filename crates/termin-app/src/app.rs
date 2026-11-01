@@ -19,6 +19,8 @@ const CONTRAST_BOOST: f32 = 0.4;
 use termin_vt::Terminal;
 
 use crate::block_mode::{BlockMode, KeyOutcome};
+use crate::controllers;
+use crate::folder_search::{self, FolderSearch};
 use crate::frame::render_window_frame;
 use crate::input::{handle_ime_commit, handle_key, handle_scroll, handle_window_mouse};
 use crate::keymap::Keymap;
@@ -54,9 +56,8 @@ pub struct App {
     /// Last drag regions sent to the platform per window, plus a scratch buffer.
     drag_regions: FxHashMap<WindowId, Vec<Rect>>,
     drag_scratch: Vec<Rect>,
-    /// Same, for tab-strip double-click (new tab) regions.
-    dbl_regions: FxHashMap<WindowId, Vec<Rect>>,
-    dbl_scratch: Vec<Rect>,
+    /// Folder search in the top bar (shared across the app's windows).
+    pub search: FolderSearch,
 }
 
 /// Focused tab in block mode, resolved for one input event.
@@ -125,8 +126,7 @@ impl App {
             block_scratch: RowInstances::default(),
             drag_regions: FxHashMap::default(),
             drag_scratch: Vec::new(),
-            dbl_regions: FxHashMap::default(),
-            dbl_scratch: Vec::new(),
+            search: FolderSearch::default(),
         }
     }
 
@@ -291,21 +291,85 @@ impl App {
         }
     }
 
-    /// Recompute titlebar drag regions and send them to the platform when they change.
+    /// Recompute top-bar drag regions and send them to the platform when they change.
     fn update_drag_regions(&mut self, cx: &mut PlatformCx, win: WindowId) {
-        let min = Size::new(self.fonts.geo.cell_w * 12.0, self.fonts.geo.cell_h * 3.0);
-        crate::frame::drag_regions_into(&mut self.model, win, min, &mut self.drag_scratch);
+        crate::frame::drag_regions_into(&self.model, win, &mut self.drag_scratch);
         if self.drag_regions.get(&win) != Some(&self.drag_scratch) {
             let regions = self.drag_scratch.clone();
             self.drag_regions.insert(win, regions.clone());
             cx.set_drag_regions(win, regions);
         }
-        crate::frame::dblclick_regions_into(&self.model, win, &mut self.dbl_scratch);
-        if self.dbl_regions.get(&win) != Some(&self.dbl_scratch) {
-            let regions = self.dbl_scratch.clone();
-            self.dbl_regions.insert(win, regions.clone());
-            cx.set_dblclick_regions(win, regions);
+    }
+
+    /// Open the folder search dropdown (collects sources, starts the one-time scan).
+    fn open_search(&mut self, cx: &mut PlatformCx, win: WindowId) {
+        self.model.commit_rename();
+        let history = self.block_mode.history_cwds(100);
+        let local = folder_search::local_sources(&self.model, win, &history);
+        self.search.begin(&local);
+        self.search
+            .start_scan(cx.wake_handle(), controllers::persist::state_dir());
+    }
+
+    /// Open `path` as a new tab in the focused pane.
+    fn open_folder(&mut self, cx: &mut PlatformCx, path: &str) {
+        if folder_search::open_folder(&mut self.model, path).is_some() {
+            self.process_model_effects(cx);
         }
+    }
+
+    /// Top-bar clicks: toggle, new workspace, search field and dropdown rows.
+    /// Returns `true` when the click was consumed.
+    fn bar_mouse(
+        &mut self,
+        cx: &mut PlatformCx,
+        win: WindowId,
+        ev: &termin_core::MouseEvent,
+    ) -> bool {
+        use termin_core::{MouseButton, MouseKind};
+        use termin_ui::widgets::folder_search::{dropdown_rect, row_at};
+        use termin_ui::widgets::titlebar::TitlebarLayout;
+        if !matches!(ev.kind, MouseKind::Down(MouseButton::Left)) {
+            return false;
+        }
+        let Some(width) = self.model.windows.get(win).map(|w| w.size.w) else {
+            return false;
+        };
+        let bar = TitlebarLayout::new(width);
+        if self.search.open {
+            let dd = dropdown_rect(bar.search, self.search.visible_rows(), width);
+            if let Some(row) = row_at(dd, self.search.visible_rows(), ev.pos.x, ev.pos.y) {
+                let idx = self.search.visible_start() + row;
+                if let Some(path) = self.search.path_at(idx).map(str::to_string) {
+                    self.search.close();
+                    self.open_folder(cx, &path);
+                }
+                return true;
+            }
+            if dd.contains(ev.pos) || bar.search.contains(ev.pos) {
+                return true;
+            }
+            // Click elsewhere dismisses the dropdown and still reaches what is under it.
+            self.search.close();
+            cx.request_frame(win);
+        }
+        if bar.search.contains(ev.pos) {
+            self.model.focused_window = Some(win);
+            self.open_search(cx, win);
+            return true;
+        }
+        if bar.toggle.contains(ev.pos) {
+            self.model.toggle_sidebar(win);
+            return true;
+        }
+        if bar.new_workspace.contains(ev.pos) {
+            self.model.focused_window = Some(win);
+            self.model.commit_rename();
+            self.model.new_workspace(win, None);
+            self.process_model_effects(cx);
+            return true;
+        }
+        false
     }
 
     pub fn update_font_size(&mut self, size: f32) {
@@ -426,6 +490,29 @@ impl AppHandler for App {
                     }
                     return;
                 }
+                // The folder search owns the keyboard while open.
+                if self.search.open {
+                    if let Some(out) = self.search.key(&key_ev) {
+                        if let Some(path) = out.open {
+                            self.open_folder(cx, &path);
+                        }
+                        if out.redraw {
+                            cx.request_frame(win);
+                        }
+                        return;
+                    }
+                } else if key_ev.pressed
+                    && matches!(
+                        self.keymap
+                            .lookup(&key_ev, crate::keymap::WhenContext::Terminal),
+                        Some(crate::action::Action::GotoPalette)
+                    )
+                {
+                    self.model.focused_window = Some(win);
+                    self.open_search(cx, win);
+                    cx.request_frame(win);
+                    return;
+                }
                 if key_ev.pressed {
                     if let Some(action) = self
                         .keymap
@@ -481,6 +568,12 @@ impl AppHandler for App {
                 }
             }
             PlatformEvent::ImeCommit(text) => {
+                if self.search.open {
+                    if self.search.insert_text(&text) {
+                        cx.request_frame(win);
+                    }
+                    return;
+                }
                 if let Some(redraw) = self.model.rename_text(&text) {
                     if redraw {
                         cx.request_frame(win);
@@ -511,6 +604,10 @@ impl AppHandler for App {
                 }
             }
             PlatformEvent::Mouse(mouse_ev) => {
+                if self.bar_mouse(cx, win, &mouse_ev) {
+                    cx.request_frame(win);
+                    return;
+                }
                 let block_panes = self.block_panes();
                 if handle_window_mouse(&mut self.model, win, &mouse_ev, &self.fonts, &|pane| {
                     block_panes.contains(&pane)
@@ -572,6 +669,7 @@ impl AppHandler for App {
                 &mut self.block_mode,
                 &mut self.block_scratch,
                 &mut self.resize_times,
+                &self.search,
             );
         }
         if resize_pending {
@@ -613,6 +711,14 @@ impl AppHandler for App {
                         }
                     }
                     _ => {}
+                }
+            }
+        }
+
+        if self.search.poll() {
+            if let Some(window) = self.model.focused_window() {
+                if !dirty_windows.contains(&window) {
+                    dirty_windows.push(window);
                 }
             }
         }

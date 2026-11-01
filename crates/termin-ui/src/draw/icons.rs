@@ -128,3 +128,48 @@ pub fn split(layer: &mut Layer, cx: f32, cy: f32, vertical_divider: bool, color:
             .push(solid_quad(x, cy - STROKE * 0.5, w, STROKE, color));
     }
 }
+
+/// Sidebar-toggle glyph: rounded outline with a left rail divider. 14x11 centered.
+pub fn sidebar_toggle(layer: &mut Layer, cx: f32, cy: f32, color: Rgba) {
+    let (w, h) = (14.0, 11.0);
+    let (x, y) = (cx - w * 0.5, cy - h * 0.5);
+    layer.quads.push(rounded_quad(
+        x,
+        y,
+        w,
+        h,
+        Rgba::TRANSPARENT,
+        2.5,
+        1.25,
+        color,
+    ));
+    layer
+        .quads
+        .push(solid_quad(x + 4.75, y + 1.0, 1.25, h - 2.0, color));
+}
+
+/// Magnifier: ring plus handle, `size` points square, centered at `(cx, cy)`.
+pub fn magnifier(layer: &mut Layer, cx: f32, cy: f32, size: f32, color: Rgba) {
+    let d = size * 0.68;
+    let (x, y) = (cx - size * 0.5, cy - size * 0.5);
+    layer.quads.push(rounded_quad(
+        x,
+        y,
+        d,
+        d,
+        Rgba::TRANSPARENT,
+        d * 0.5,
+        1.25,
+        color,
+    ));
+    let a = d * 0.85;
+    push_line(
+        &mut layer.quads,
+        x + a,
+        y + a,
+        x + size - 0.6,
+        y + size - 0.6,
+        1.25,
+        color,
+    );
+}

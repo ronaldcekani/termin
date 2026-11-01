@@ -232,20 +232,34 @@ pub struct WindowState {
     pub size: Size,
 }
 
+/// Height of the window top bar (traffic lights, sidebar toggle, folder search).
+/// Sidebar and workspace content start below it.
+pub const TITLEBAR_HEIGHT: f32 = 38.0;
+
 impl WindowState {
-    /// Sidebar rect (zero width when hidden).
+    /// Sidebar rect (zero width when hidden), below the top bar.
     pub fn sidebar_rect(&self) -> Rect {
         let w = if self.sidebar_visible {
             self.sidebar_width.min(self.size.w)
         } else {
             0.0
         };
-        Rect::new(0.0, 0.0, w, self.size.h)
+        Rect::new(
+            0.0,
+            TITLEBAR_HEIGHT,
+            w,
+            (self.size.h - TITLEBAR_HEIGHT).max(0.0),
+        )
     }
 
-    /// Workspace content area (right of the sidebar).
+    /// Workspace content area (right of the sidebar, below the top bar).
     pub fn content_rect(&self) -> Rect {
         let s = self.sidebar_rect();
-        Rect::new(s.w, 0.0, (self.size.w - s.w).max(0.0), self.size.h)
+        Rect::new(
+            s.w,
+            TITLEBAR_HEIGHT,
+            (self.size.w - s.w).max(0.0),
+            (self.size.h - TITLEBAR_HEIGHT).max(0.0),
+        )
     }
 }
