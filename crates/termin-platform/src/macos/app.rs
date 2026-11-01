@@ -330,6 +330,13 @@ pub fn on_display_link_fire(win_id: WindowId) {
         let win_state = state.windows.get_mut(&win_id)?;
         let (req_flag, pending_flag) = state.window_flags.get(&win_id)?;
         pending_flag.store(false, Ordering::Release);
+        // During live resize setFrameSize renders synchronously in the resize
+        // transaction; a link frame here would present a mismatched size and
+        // compete for drawables. Keep the request for after the resize ends.
+        // SAFETY: main thread; reading NSView state.
+        if unsafe { win_state.view.inLiveResize() } {
+            return None;
+        }
         let requested = req_flag.swap(false, Ordering::AcqRel);
 
         if requested && !win_state.is_occluded {

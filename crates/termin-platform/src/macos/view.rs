@@ -1075,6 +1075,11 @@ impl TerminView {
             view.setLayerContentsRedrawPolicy(
                 NSViewLayerContentsRedrawPolicy::NSViewLayerContentsRedrawDuringViewResize,
             );
+            // AppKit drives the backing layer's contentsGravity from this; the default
+            // (scale axes independently) stretches a stale frame during resize.
+            view.setLayerContentsPlacement(
+                objc2_app_kit::NSViewLayerContentsPlacement::TopLeft,
+            );
             let types: Retained<NSArray<NSString>> =
                 msg_send_id![objc2::class!(NSArray), arrayWithObject: NSPasteboardTypeFileURL];
             view.registerForDraggedTypes(&types);
