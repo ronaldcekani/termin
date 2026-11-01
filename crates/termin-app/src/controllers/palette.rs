@@ -134,7 +134,7 @@ pub fn fuzzy_score(query: &str, candidate: &str) -> Option<i32> {
             }
             last = Some(i);
             qi += 1;
-            if qi == query_len {
+            if qi > query_len {
                 return Some(score - candidate_len as i32 / 8);
             }
             wanted = q.next()?;
@@ -160,6 +160,8 @@ mod tests {
     #[test]
     fn fuzzy_is_subsequence_and_prefixes_work() {
         assert!(fuzzy_score("splr", "Split Right").is_some());
+        assert!(fuzzy_score("s", "Split Right").is_some());
+        assert!(fuzzy_score("sx", "Split Right").is_none());
         assert!(fuzzy_score("xyz", "Split Right").is_none());
         let mut p = PaletteState::default();
         p.set_query("#work");

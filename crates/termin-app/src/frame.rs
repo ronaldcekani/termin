@@ -20,9 +20,11 @@ use termin_ui::block_view::BlockView;
 use termin_ui::draw::draw_text_mono;
 use termin_ui::widgets::completion_menu::CompletionMenuWidget;
 use termin_ui::widgets::editor::EditorWidget;
-use termin_ui::widgets::tabstrip::StripLayout;
+use termin_ui::widgets::folder_search::{draw_dropdown, dropdown_rect, FolderRow};
+use termin_ui::widgets::titlebar::{draw_titlebar, TitlebarLayout, TitlebarView, TITLEBAR_H};
 
 use crate::block_mode::{BlockMode, BlockTab};
+use crate::folder_search::FolderSearch;
 use crate::model::{AppModel, RenameEdit, RenameTarget};
 use termin_ui::widgets::text_field::draw_text_field;
 
@@ -56,6 +58,7 @@ pub fn render_window_frame(
     block_mode: &mut BlockMode,
     block_scratch: &mut RowInstances,
     resize_times: &mut FxHashMap<PaneId, Instant>,
+    search: &FolderSearch,
 ) -> bool {
     let mut resize_pending = false;
     let size = target.size();
@@ -81,6 +84,19 @@ pub fn render_window_frame(
         .quads
         .push(solid_quad(0.0, 0.0, size.w, size.h, tokens.bg_app));
     draw_list.push_layer(root_layer);
+
+    // Top bar: traffic-light gap, sidebar toggle, new workspace, folder search.
+    {
+        let sidebar_visible = model.windows.get(win_id).is_some_and(|w| w.sidebar_visible);
+        let view = TitlebarView {
+            sidebar_visible,
+            query: search.open.then_some(&search.field),
+            caret_visible: cursor_blink_visible,
+        };
+        let mut bar_layer = Layer::new(Some(Rect::new(0.0, 0.0, size.w, TITLEBAR_H)));
+        draw_titlebar(size.w, &view, tokens, fonts, glyphs, &mut bar_layer);
+        draw_list.push_layer(bar_layer);
+    }
 
     // Sidebar is scoped to this OS window, including its own active workspace.
     if let Some(window) = model.windows.get(win_id) {
@@ -379,6 +395,32 @@ pub fn render_window_frame(
     }
     draw_list.push_layer(divider_layer);
 
+    // Folder-search dropdown overlays everything else.
+    if search.open {
+        let bar = TitlebarLayout::new(size.w);
+        let start = search.visible_start();
+        let rows: Vec<FolderRow<'_>> = search
+            .results()
+            .enumerate()
+            .skip(start)
+            .take(search.visible_rows())
+            .map(|(i, c)| FolderRow {
+                name: c.name(),
+                detail: &c.display,
+                selected: i == search.selected,
+            })
+            .collect();
+        let dd = dropdown_rect(bar.search, rows.len(), size.w);
+        let mut layer = Layer::new(Some(Rect::new(0.0, 0.0, size.w, size.h)));
+        let empty = if search.loading() {
+            "Searching folders…"
+        } else {
+            "No matching folders"
+        };
+        draw_dropdown(dd, &rows, empty, tokens, fonts, glyphs, &mut layer);
+        draw_list.push_layer(layer);
+    }
+
     // 5. Upload new glyph bitmaps to GPU atlas
     let mut uploads = Vec::new();
     glyphs.drain_uploads(&mut uploads);
@@ -585,87 +627,55 @@ fn render_block_pane(
     }
 }
 
-/// Height of the transparent titlebar band where empty chrome drags the window.
-const TITLEBAR_DRAG_HEIGHT: f32 = 38.0;
+/// `band` minus `hole`: up to four rects covering the remainder.
+fn subtract_rect(band: Rect, hole: Rect, out: &mut Vec<Rect>) {
+    let (x0, y0) = (hole.x.max(band.x), hole.y.max(band.y));
+    let (x1, y1) = (
+        hole.right().min(band.right()),
+        hole.bottom().min(band.bottom()),
+    );
+    if x1 <= x0 || y1 <= y0 {
+        out.push(band);
+        return;
+    }
+    if y0 > band.y {
+        out.push(Rect::new(band.x, band.y, band.w, y0 - band.y));
+    }
+    if y1 < band.bottom() {
+        out.push(Rect::new(band.x, y1, band.w, band.bottom() - y1));
+    }
+    if x0 > band.x {
+        out.push(Rect::new(band.x, y0, x0 - band.x, y1 - y0));
+    }
+    if x1 < band.right() {
+        out.push(Rect::new(x1, y0, band.right() - x1, y1 - y0));
+    }
+}
 
 /// Collect the window-drag regions for `win_id` into `out` (cleared first).
 ///
-/// Only empty chrome in the titlebar band drags: the sidebar header left of its
-/// "+" button and the gap in each top-row tab strip between the tabs and the
-/// action buttons. Everything else (buttons, tabs, terminal) receives clicks.
-/// `out` is never left empty, because the platform treats an empty list as
-/// "whole titlebar band drags".
-pub fn drag_regions_into(
-    model: &mut AppModel,
-    win_id: WindowId,
-    min_pane_size: Size,
-    out: &mut Vec<Rect>,
-) {
+/// Only empty space in the top bar drags: the bar minus the sidebar toggle,
+/// new-workspace button and search field. Panes (and their tab strips) sit
+/// below the bar and never drag. `out` is never left empty, because the
+/// platform treats an empty list as "whole titlebar band drags".
+pub fn drag_regions_into(model: &AppModel, win_id: WindowId, out: &mut Vec<Rect>) {
     out.clear();
     if let Some(window) = model.windows.get(win_id) {
-        if window.sidebar_visible {
-            let sidebar = window.sidebar_rect();
-            // Sidebar "+" occupies [right - 30, right - 6]; stop short of it.
-            let w = (sidebar.w - 34.0).max(0.0);
-            out.push(Rect::new(sidebar.x, sidebar.y, w, TITLEBAR_DRAG_HEIGHT));
-        }
-    }
-    // Refresh the cached layout, then read it immutably alongside the pane arena.
-    let _ = model.layout(win_id, min_pane_size);
-    let layout = model
-        .windows
-        .get(win_id)
-        .and_then(|w| model.workspaces.get(w.active_workspace))
-        .map(|ws| &ws.layout);
-    if let Some(layout) = layout {
-        for &(pane_id, pane_rect) in &layout.panes {
-            if pane_rect.y >= TITLEBAR_DRAG_HEIGHT {
-                continue;
+        let bar = TitlebarLayout::new(window.size.w);
+        let mut pieces = vec![Rect::new(0.0, 0.0, window.size.w, TITLEBAR_H)];
+        let mut next = Vec::new();
+        for hole in [bar.toggle, bar.new_workspace, bar.search] {
+            next.clear();
+            for &p in &pieces {
+                subtract_rect(p, hole, &mut next);
             }
-            if let Some(gap) = strip_gap(model, pane_id, pane_rect) {
-                out.push(gap);
-            }
+            std::mem::swap(&mut pieces, &mut next);
         }
+        out.extend(pieces.into_iter().filter(|r| r.w > 0.0 && r.h > 0.0));
     }
     if out.is_empty() {
         // Off-window sentinel: keeps the platform from falling back to the default band.
         out.push(Rect::new(-1.0, -1.0, 0.0, 0.0));
-    }
-}
-
-/// Empty tab-strip gap (between the last tab and the action buttons) of `pane_id`.
-fn strip_gap(model: &AppModel, pane_id: PaneId, pane_rect: Rect) -> Option<Rect> {
-    let pane = model.panes.get(pane_id)?;
-    let strip = Rect::new(pane_rect.x, pane_rect.y, pane_rect.w, TAB_STRIP_HEIGHT);
-    let active = pane
-        .tabs
-        .iter()
-        .position(|&t| t == pane.active_tab)
-        .unwrap_or(0);
-    let strip_layout = StripLayout::new(strip, pane.tabs.len(), active);
-    let tabs_end =
-        strip_layout.start_x + strip_layout.visible as f32 * (strip_layout.tab_width + 2.0);
-    let gap = strip_layout.actions_x - tabs_end;
-    (gap > 0.0).then(|| Rect::new(tabs_end, strip.y, gap, strip.h))
-}
-
-/// Tab-strip gaps inside the titlebar band: double-clicking them opens a new tab
-/// (delivered to the app) instead of zooming the window. Uses the cached layout.
-pub fn dblclick_regions_into(model: &AppModel, win_id: WindowId, out: &mut Vec<Rect>) {
-    out.clear();
-    let Some(window) = model.windows.get(win_id) else {
-        return;
-    };
-    let Some(ws) = model.workspaces.get(window.active_workspace) else {
-        return;
-    };
-    for &(pane_id, pane_rect) in &ws.layout.panes {
-        if pane_rect.y >= TITLEBAR_DRAG_HEIGHT {
-            continue;
-        }
-        if let Some(gap) = strip_gap(model, pane_id, pane_rect) {
-            out.push(gap);
-        }
     }
 }
 
@@ -680,68 +690,76 @@ mod tests {
     }
 
     #[test]
-    fn dblclick_regions_are_tab_strip_gaps_inside_drag_regions() {
+    fn drag_regions_leave_bar_buttons_clickable() {
         let mut model = AppModel::new();
         let win = model.new_window(None, Size::new(960.0, 640.0), None);
-        let min = Size::new(96.0, 48.0);
-        let mut drag = Vec::new();
-        drag_regions_into(&mut model, win, min, &mut drag);
-        let mut dbl = Vec::new();
-        dblclick_regions_into(&model, win, &mut dbl);
-        assert!(!dbl.is_empty());
-        for r in &dbl {
-            assert!(contains_any(&drag, r.x + r.w * 0.5, r.y + r.h * 0.5));
+        let mut regions = Vec::new();
+        drag_regions_into(&model, win, &mut regions);
+        let bar = TitlebarLayout::new(960.0);
+        for r in [bar.toggle, bar.new_workspace, bar.search] {
+            // Center and all four corners (inset by 1pt) must receive clicks.
+            for (x, y) in [
+                (r.x + r.w * 0.5, r.y + r.h * 0.5),
+                (r.x + 1.0, r.y + 1.0),
+                (r.right() - 1.0, r.y + 1.0),
+                (r.x + 1.0, r.bottom() - 1.0),
+                (r.right() - 1.0, r.bottom() - 1.0),
+            ] {
+                assert!(!contains_any(&regions, x, y), "({x},{y}) drags");
+            }
         }
-        // Sidebar header keeps zoom behaviour.
-        let sidebar = model.windows.get(win).unwrap().sidebar_rect();
-        assert!(!contains_any(&dbl, sidebar.x + 20.0, 10.0));
+        // Empty bar space drags: traffic-light gap, between buttons and search, right edge, above a button.
+        assert!(contains_any(&regions, 20.0, 19.0));
+        assert!(contains_any(&regions, bar.search.right() + 20.0, 19.0));
+        assert!(contains_any(&regions, bar.search.x + 20.0, 1.0));
+        assert!(contains_any(&regions, bar.toggle.x + 10.0, 1.0));
+        // Nothing below the bar drags (panes, strips, sidebar cards).
+        assert!(regions.iter().all(|r| r.bottom() <= TITLEBAR_H + 0.01));
+        assert!(!contains_any(&regions, 400.0, TITLEBAR_H + 5.0));
     }
 
     #[test]
-    fn drag_regions_leave_buttons_clickable() {
+    fn drag_regions_same_with_sidebar_hidden() {
         let mut model = AppModel::new();
         let win = model.new_window(None, Size::new(960.0, 640.0), None);
-        let min = Size::new(96.0, 48.0);
-        let mut regions = Vec::new();
-        drag_regions_into(&mut model, win, min, &mut regions);
-
-        let window = model.windows.get(win).unwrap();
-        let sidebar = window.sidebar_rect();
-        // Sidebar "+" button center must not drag.
-        assert!(!contains_any(&regions, sidebar.right() - 18.0, 21.0));
-        // Sidebar header title area drags.
-        assert!(contains_any(&regions, sidebar.x + 20.0, 10.0));
-
-        let layout = model.layout(win, min).unwrap().clone();
-        let (_, pane) = layout.panes[0];
-        // Tab-strip new-tab / split buttons and the first tab must not drag.
-        let strip = Rect::new(pane.x, pane.y, pane.w, TAB_STRIP_HEIGHT);
-        let actions_x = StripLayout::new(strip, 1, 0).actions_x;
-        for i in 0..3 {
-            assert!(!contains_any(
-                &regions,
-                actions_x + 26.0 * i as f32 + 12.0,
-                15.0
-            ));
-        }
-        assert!(!contains_any(&regions, pane.x + 20.0, 15.0));
-        // Terminal content never drags.
-        assert!(!contains_any(
-            &regions,
-            pane.x + 100.0,
-            TAB_STRIP_HEIGHT + 5.0
-        ));
+        let mut shown = Vec::new();
+        drag_regions_into(&model, win, &mut shown);
+        model.toggle_sidebar(win);
+        let mut hidden = Vec::new();
+        drag_regions_into(&model, win, &mut hidden);
+        assert_eq!(shown, hidden);
     }
 
     #[test]
     fn drag_regions_never_empty() {
         let mut model = AppModel::new();
         let win = model.new_window(None, Size::new(10.0, 10.0), None);
-        if let Some(w) = model.windows.get_mut(win) {
-            w.sidebar_visible = false;
-        }
         let mut regions = Vec::new();
-        drag_regions_into(&mut model, win, Size::new(96.0, 48.0), &mut regions);
+        drag_regions_into(&model, win, &mut regions);
         assert!(!regions.is_empty());
+        drag_regions_into(&model, WindowId(999), &mut regions);
+        assert!(!regions.is_empty());
+    }
+
+    #[test]
+    fn panes_and_sidebar_start_below_bar() {
+        let mut model = AppModel::new();
+        let win = model.new_window(None, Size::new(960.0, 640.0), None);
+        let w = model.windows.get(win).unwrap();
+        assert_eq!(w.sidebar_rect().y, TITLEBAR_H);
+        assert_eq!(w.sidebar_rect().h, 640.0 - TITLEBAR_H);
+        assert_eq!(w.content_rect().y, TITLEBAR_H);
+        assert_eq!(w.content_rect().x, w.sidebar_rect().w);
+        let layout = model.layout(win, Size::new(96.0, 48.0)).unwrap().clone();
+        assert!(layout.panes.iter().all(|(_, r)| r.y >= TITLEBAR_H));
+        model.toggle_sidebar(win);
+        let layout = model.layout(win, Size::new(96.0, 48.0)).unwrap().clone();
+        let (_, r) = layout.panes[0];
+        assert_eq!((r.x, r.y, r.w), (0.0, TITLEBAR_H, 960.0));
+    }
+
+    #[test]
+    fn titlebar_height_matches_model() {
+        assert_eq!(TITLEBAR_H, crate::model::TITLEBAR_HEIGHT);
     }
 }

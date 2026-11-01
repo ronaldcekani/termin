@@ -16,7 +16,7 @@ pub use tree::{
 };
 pub use types::{
     Attention, AttentionKind, Pane, Tab, TabMode, TabTitle, WindowState, Workspace,
-    WorkspaceLayout, WorkspaceMeta,
+    WorkspaceLayout, WorkspaceMeta, TITLEBAR_HEIGHT,
 };
 
 use std::sync::Arc;
@@ -354,14 +354,18 @@ impl AppModel {
 
     /// Create a new tab in `pane_id`.
     pub fn new_tab(&mut self, pane_id: PaneId, inherit_cwd: bool) -> Option<TabId> {
-        let pane = self.panes.get_mut(pane_id)?;
-        let active_tab_id = pane.active_tab;
+        let pane = self.panes.get(pane_id)?;
         let cwd = if inherit_cwd {
-            self.tabs.get(active_tab_id).and_then(|t| t.cwd.clone())
+            self.tabs.get(pane.active_tab).and_then(|t| t.cwd.clone())
         } else {
             None
         };
+        self.new_tab_with_cwd(pane_id, cwd)
+    }
 
+    /// Create a new tab in `pane_id` that starts in `cwd` (`None` = default).
+    pub fn new_tab_with_cwd(&mut self, pane_id: PaneId, cwd: Option<String>) -> Option<TabId> {
+        self.panes.get(pane_id)?;
         let tab_id = self.tabs.insert_with(|id| Tab {
             id,
             pane: pane_id,
