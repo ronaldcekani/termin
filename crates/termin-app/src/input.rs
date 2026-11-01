@@ -240,18 +240,19 @@ pub fn handle_window_mouse(
 ) -> bool {
     let is_pointer_down = matches!(ev.kind, MouseKind::Down(_));
     let is_left_down = matches!(ev.kind, MouseKind::Down(MouseButton::Left));
+    let pitch = termin_ui::widgets::sidebar::line_pitch(fonts.ui.geo.cell_h);
     if is_pointer_down {
         model.focused_window = Some(win_id);
     }
     if is_left_down && model.rename.is_some() {
         // Clicking inside the field keeps editing; anywhere else commits.
-        if rename_target_rect(model, win_id, ev.pos).is_some() {
+        if rename_target_rect(model, win_id, ev.pos, pitch).is_some() {
             return true;
         }
         model.commit_rename();
     }
     if is_left_down {
-        if let Some(ws_id) = workspace_at(model, win_id, ev.pos) {
+        if let Some(ws_id) = workspace_at(model, win_id, ev.pos, pitch) {
             let selected = model.select_workspace(ws_id);
             if ev.click_count == 2 {
                 return model.begin_rename_workspace(ws_id) || selected;
@@ -323,9 +324,14 @@ pub fn handle_window_mouse(
 }
 
 /// Rect of the card/tab being renamed if `pos` lies inside it.
-fn rename_target_rect(model: &AppModel, win_id: WindowId, pos: termin_core::Point) -> Option<Rect> {
+fn rename_target_rect(
+    model: &AppModel,
+    win_id: WindowId,
+    pos: termin_core::Point,
+    pitch: f32,
+) -> Option<Rect> {
     match model.rename.as_ref()?.target {
-        RenameTarget::Workspace(ws) => (workspace_at(model, win_id, pos) == Some(ws))
+        RenameTarget::Workspace(ws) => (workspace_at(model, win_id, pos, pitch) == Some(ws))
             .then(|| Rect::new(pos.x, pos.y, 0.0, 0.0)),
         RenameTarget::Tab(tab) => {
             let pane_id = model.tabs.get(tab)?.pane;
@@ -360,10 +366,13 @@ pub fn tab_rect_of(
         .tab_rect(strip, index)
 }
 
-fn workspace_at(
+/// Workspace card under `pos`; `pitch` is the sidebar line pitch
+/// (`termin_ui::widgets::sidebar::line_pitch`).
+pub fn workspace_at(
     model: &AppModel,
     win_id: WindowId,
     pos: termin_core::Point,
+    pitch: f32,
 ) -> Option<termin_core::WorkspaceId> {
     let window = model.windows.get(win_id)?;
     if !window.sidebar_visible || !window.sidebar_rect().contains(pos) {
@@ -377,7 +386,7 @@ fn workspace_at(
             + usize::from(ws.meta.git_branch.is_some())
             + ws.meta.paths.iter().take(3).count()
             + usize::from(!ws.meta.ports.is_empty());
-        let height = (18.0 + lines as f32 * 18.0).max(46.0);
+        let height = termin_ui::widgets::sidebar::card_height(lines, pitch);
         let card = Rect::new(
             window.sidebar_rect().x + 7.0,
             y,
@@ -430,12 +439,7 @@ fn handle_tabstrip_click(
         let Some(tab_rect) = layout.tab_rect(rect, index) else {
             continue;
         };
-        let close_rect = Rect::new(
-            tab_rect.right() - 23.0,
-            tab_rect.y + (tab_rect.h - 18.0) * 0.5,
-            18.0,
-            18.0,
-        );
+        let close_rect = termin_ui::close_rect(tab_rect);
         // Any tab's × closes it; closing a pane's last tab collapses the split.
         if close_rect.contains(pos) {
             return model.close_tab(*tab_id);

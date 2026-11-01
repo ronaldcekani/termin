@@ -18,7 +18,7 @@ pub use terminal_view::{
 };
 pub use theme::{MotionTokens, Tokens};
 pub use widgets::{
-    draw_sidebar, draw_tab, draw_tabstrip, draw_workspace_card, PaneWidget, Scrollbar,
+    close_rect, draw_sidebar, draw_tab, draw_tabstrip, draw_workspace_card, PaneWidget, Scrollbar,
     ScrollbarTick, ScrollbarTickKind, SidebarWorkspace, StripHits, TabHits, TabState,
     WorkspaceCardState, TAB_STRIP_HEIGHT,
 };

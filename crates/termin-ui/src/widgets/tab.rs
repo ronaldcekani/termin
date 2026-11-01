@@ -23,6 +23,11 @@ pub struct TabHits {
     pub close: Rect,
 }
 
+/// Hit rect of a tab's close button (shared by drawing and hit testing).
+pub fn close_rect(tab: Rect) -> Rect {
+    Rect::new(tab.right() - 23.0, tab.y + (tab.h - 18.0) * 0.5, 18.0, 18.0)
+}
+
 pub fn draw_tab<B: FontBackend>(
     rect: Rect,
     title: &str,
@@ -88,12 +93,7 @@ pub fn draw_tab<B: FontBackend>(
             Rgba::TRANSPARENT,
         ));
     }
-    let close = Rect::new(
-        rect.right() - 23.0,
-        rect.y + (rect.h - 18.0) * 0.5,
-        18.0,
-        18.0,
-    );
+    let close = close_rect(rect);
     let show_close = state.active || state.hovered || state.close_hovered;
     let title_w = if show_close {
         rect.w - 58.0

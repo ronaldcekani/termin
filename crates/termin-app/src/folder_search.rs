@@ -10,7 +10,7 @@ use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use termin_core::{Key, KeyEvent, Mods, NamedKey, TabId, WakeHandle, WindowId};
 use termin_persist::{Snapshot, TreeSnapshot};
 use termin_ui::widgets::folder_search::MAX_ROWS;
-use termin_ui::widgets::text_field::{FieldOutcome, TextField};
+use termin_ui::widgets::text_field::{ClipOp, ClipResult, FieldOutcome, TextField};
 
 use crate::controllers::palette::fuzzy_score;
 use crate::model::AppModel;
@@ -286,6 +286,16 @@ impl FolderSearch {
         true
     }
 
+    /// Cmd-C / Cmd-X / Cmd-V on the query field; refilters when the text changed.
+    pub fn clip(&mut self, op: ClipOp, clipboard: Option<&str>) -> ClipResult {
+        let r = self.field.apply_clip(op, clipboard);
+        if r.changed {
+            self.selected = 0;
+            self.refilter();
+        }
+        r
+    }
+
     fn open_selected(&mut self) -> Option<String> {
         let path = self.path_at(self.selected)?.to_string();
         self.close();
@@ -483,6 +493,21 @@ mod tests {
 
     fn named(k: NamedKey) -> KeyEvent {
         key(Key::Named(k), Mods::empty(), None)
+    }
+
+    #[test]
+    fn paste_replaces_selection_strips_newlines_and_refilters() {
+        let mut s = search();
+        s.insert_text("zzz");
+        assert_eq!(s.results().count(), 0);
+        s.field.select_all();
+        let r = s.clip(ClipOp::Paste, Some("termin\n"));
+        assert!(r.changed);
+        assert_eq!(s.field.text(), "termin");
+        assert!(s.results().count() >= 1);
+        s.field.select_all();
+        let r = s.clip(ClipOp::Copy, None);
+        assert_eq!(r.copied.as_deref(), Some("termin"));
     }
 
     fn search() -> FolderSearch {

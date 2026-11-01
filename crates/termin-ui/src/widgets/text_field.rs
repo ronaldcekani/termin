@@ -1,7 +1,7 @@
 //! Single-line inline text field (rename editor): editing logic plus a proportional-text renderer.
 
 use crate::{
-    draw::{draw_text_ui, measure_text_ui, rounded_quad, solid_quad, UiFont},
+    draw::{center_y, draw_text_ui, measure_text_ui, rounded_quad, solid_quad, UiFont},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -20,6 +20,36 @@ pub enum FieldOutcome {
     Commit,
     /// Escape pressed.
     Cancel,
+}
+
+/// Clipboard shortcut recognised by [`clip_op`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ClipOp {
+    Copy,
+    Cut,
+    Paste,
+}
+
+/// Outcome of [`TextField::apply_clip`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClipResult {
+    /// Text or caret changed (redraw / refilter).
+    pub changed: bool,
+    /// Text to place on the clipboard (copy / cut with a selection).
+    pub copied: Option<String>,
+}
+
+/// Cmd-C / Cmd-X / Cmd-V (no other modifiers) on a key press.
+pub fn clip_op(ev: &KeyEvent) -> Option<ClipOp> {
+    if !ev.pressed || ev.mods != Mods::CMD {
+        return None;
+    }
+    match ev.key {
+        Key::Char('c') | Key::Char('C') => Some(ClipOp::Copy),
+        Key::Char('x') | Key::Char('X') => Some(ClipOp::Cut),
+        Key::Char('v') | Key::Char('V') => Some(ClipOp::Paste),
+        _ => None,
+    }
 }
 
 /// Single-line text buffer with caret and optional selection (char indices).
@@ -71,7 +101,14 @@ impl TextField {
             .map_or(self.text.len(), |(b, _)| b)
     }
 
-    fn delete_selection(&mut self) -> bool {
+    /// The selected text, if any.
+    pub fn selected_text(&self) -> Option<&str> {
+        let (s, e) = self.selection()?;
+        Some(&self.text[self.byte_at(s)..self.byte_at(e)])
+    }
+
+    /// Remove the selection; `true` if something was removed.
+    pub fn delete_selection(&mut self) -> bool {
         let Some((s, e)) = self.selection() else {
             self.anchor = None;
             return false;
@@ -99,6 +136,29 @@ impl TextField {
         self.text.insert_str(at, &clean);
         self.caret += clean.chars().count();
         true
+    }
+
+    /// Apply a clipboard shortcut. `clipboard` is the clipboard text (read it only for
+    /// [`ClipOp::Paste`]). Pasted text has line breaks and other control characters
+    /// stripped and replaces the selection.
+    pub fn apply_clip(&mut self, op: ClipOp, clipboard: Option<&str>) -> ClipResult {
+        match op {
+            ClipOp::Copy => ClipResult {
+                changed: false,
+                copied: self.selected_text().map(str::to_string),
+            },
+            ClipOp::Cut => {
+                let copied = self.selected_text().map(str::to_string);
+                ClipResult {
+                    changed: self.delete_selection(),
+                    copied,
+                }
+            }
+            ClipOp::Paste => ClipResult {
+                changed: clipboard.is_some_and(|t| self.insert(t)),
+                copied: None,
+            },
+        }
     }
 
     pub fn backspace(&mut self) -> bool {
@@ -255,7 +315,7 @@ pub fn draw_text_field<B: FontBackend>(
     let ui = &fonts.ui;
     let pad = 6.0;
     let avail = (rect.w - 2.0 * pad).max(1.0);
-    let ty = rect.y + ((rect.h - ui.geo.cell_h) * 0.5).max(0.0);
+    let ty = center_y(rect.y, rect.h, ui.geo.cell_h);
     draw_field_text(
         field,
         caret_visible,
@@ -398,6 +458,47 @@ mod tests {
         assert_eq!(f.view_start(4), 5);
         f.home(false);
         assert_eq!(f.view_start(4), 0);
+    }
+
+    #[test]
+    fn clip_op_requires_exact_cmd() {
+        assert_eq!(
+            clip_op(&key(Key::Char('v'), Mods::CMD, None)),
+            Some(ClipOp::Paste)
+        );
+        assert_eq!(clip_op(&key(Key::Char('v'), Mods::empty(), None)), None);
+        assert_eq!(
+            clip_op(&key(Key::Char('v'), Mods::CMD | Mods::SHIFT, None)),
+            None
+        );
+    }
+
+    #[test]
+    fn paste_replaces_selection_and_strips_newlines() {
+        let mut f = TextField::new("hello world");
+        f.move_to(0, false);
+        f.move_to(5, true);
+        let r = f.apply_clip(ClipOp::Paste, Some("a\nb\r\n"));
+        assert!(r.changed);
+        assert_eq!(f.text(), "ab world");
+        assert_eq!(f.caret(), 2);
+        assert!(!f.apply_clip(ClipOp::Paste, None).changed);
+        assert!(!f.apply_clip(ClipOp::Paste, Some("\n")).changed);
+    }
+
+    #[test]
+    fn copy_and_cut_use_selection() {
+        let mut f = TextField::new("abcdef");
+        f.move_to(1, false);
+        f.move_to(4, true);
+        assert_eq!(f.selected_text(), Some("bcd"));
+        let r = f.apply_clip(ClipOp::Copy, None);
+        assert_eq!((r.changed, r.copied.as_deref()), (false, Some("bcd")));
+        let r = f.apply_clip(ClipOp::Cut, None);
+        assert_eq!((r.changed, r.copied.as_deref()), (true, Some("bcd")));
+        assert_eq!(f.text(), "aef");
+        let r = f.apply_clip(ClipOp::Cut, None);
+        assert_eq!((r.changed, r.copied), (false, None));
     }
 
     #[test]

@@ -5,7 +5,7 @@
 
 use super::AppModel;
 use termin_core::{KeyEvent, TabId, WorkspaceId};
-use termin_ui::widgets::text_field::{FieldOutcome, TextField};
+use termin_ui::widgets::text_field::{ClipOp, ClipResult, FieldOutcome, TextField};
 
 /// What is being renamed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -98,6 +98,11 @@ impl AppModel {
         })
     }
 
+    /// Cmd-C / Cmd-X / Cmd-V on the active rename field (`None` when no rename is active).
+    pub fn rename_clip(&mut self, op: ClipOp, clipboard: Option<&str>) -> Option<ClipResult> {
+        Some(self.rename.as_mut()?.field.apply_clip(op, clipboard))
+    }
+
     /// Insert committed IME/text input into the active rename field.
     pub fn rename_text(&mut self, text: &str) -> Option<bool> {
         let edit = self.rename.as_mut()?;
@@ -126,6 +131,17 @@ mod tests {
         m.new_window(None, Size::new(800.0, 600.0), None);
         let ws = m.workspaces.iter().next().map(|(id, _)| id).unwrap();
         (m, ws)
+    }
+
+    #[test]
+    fn rename_clipboard_paste_replaces_selection() {
+        let (mut m, ws) = model();
+        assert!(m.rename_clip(ClipOp::Paste, Some("x")).is_none());
+        assert!(m.begin_rename_workspace(ws));
+        // Initial text is fully selected, so paste replaces it; newlines are stripped.
+        let r = m.rename_clip(ClipOp::Paste, Some("new\nname")).unwrap();
+        assert!(r.changed);
+        assert_eq!(m.rename.as_ref().unwrap().field.text(), "newname");
     }
 
     #[test]

@@ -25,6 +25,7 @@ use termin_ui::widgets::titlebar::{draw_titlebar, TitlebarLayout, TitlebarView, 
 
 use crate::block_mode::{BlockMode, BlockTab};
 use crate::folder_search::FolderSearch;
+use crate::hover::HoverTarget;
 use crate::model::{AppModel, RenameEdit, RenameTarget};
 use termin_ui::widgets::text_field::draw_text_field;
 
@@ -59,6 +60,7 @@ pub fn render_window_frame(
     block_scratch: &mut RowInstances,
     resize_times: &mut FxHashMap<PaneId, Instant>,
     search: &FolderSearch,
+    hover: HoverTarget,
 ) -> bool {
     let mut resize_pending = false;
     let size = target.size();
@@ -89,6 +91,7 @@ pub fn render_window_frame(
     {
         let sidebar_visible = model.windows.get(win_id).is_some_and(|w| w.sidebar_visible);
         let view = TitlebarView {
+            hover: hover.bar(),
             sidebar_visible,
             query: search.open.then_some(&search.field),
             caret_visible: cursor_blink_visible,
@@ -126,6 +129,7 @@ pub fn render_window_frame(
                         ports: &ws.meta.ports,
                         unread,
                         active: ws_id == window.active_workspace,
+                        hovered: hover == HoverTarget::Workspace(ws_id),
                     })
                 })
                 .collect();
@@ -146,11 +150,13 @@ pub fn render_window_frame(
             }) = model.rename.as_ref()
             {
                 if let Some((_, card)) = hits.iter().find(|(id, _)| id == ws) {
+                    let field_h = fonts.ui.geo.cell_h + 10.0;
+                    let pitch = termin_ui::widgets::sidebar::line_pitch(fonts.ui.geo.cell_h);
                     let rect = Rect::new(
                         card.x + 11.0,
-                        card.y + 4.0,
+                        card.y + pitch - field_h * 0.5,
                         card.w - 22.0,
-                        fonts.ui.geo.cell_h + 10.0,
+                        field_h,
                     );
                     let mut layer = Layer::new(Some(*card));
                     draw_text_field(
@@ -209,7 +215,11 @@ pub fn render_window_frame(
                             running: tab.session.as_ref().is_some_and(|session| {
                                 session.state() == termin_pty::SessionState::Running
                             }),
-                            ..TabState::default()
+                            hovered: matches!(
+                                hover,
+                                HoverTarget::Tab(t) | HoverTarget::TabClose(t) if t == tab_id
+                            ),
+                            close_hovered: hover == HoverTarget::TabClose(tab_id),
                         },
                     ))
                 })
@@ -218,6 +228,10 @@ pub fn render_window_frame(
                 strip_rect,
                 &tabs,
                 pane.active_tab,
+                match hover {
+                    HoverTarget::StripAction(p, i) if p == pane_id => Some(usize::from(i)),
+                    _ => None,
+                },
                 tokens,
                 fonts,
                 glyphs,
