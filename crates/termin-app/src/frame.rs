@@ -30,7 +30,9 @@ use crate::model::{AppModel, RenameEdit, RenameTarget};
 use termin_ui::widgets::text_field::draw_text_field;
 
 /// Minimum interval between PTY winsize/reflow updates per pane while the grid size is changing.
-const RESIZE_THROTTLE: Duration = Duration::from_millis(48);
+/// Measured reflow cost is ~0.1 ms, so one 60 Hz frame keeps text tracking the window edge
+/// while still capping work for very large scrollbacks.
+const RESIZE_THROTTLE: Duration = Duration::from_millis(16);
 
 /// Buffers reused across frames so steady-state rendering does not allocate them.
 #[derive(Default)]
