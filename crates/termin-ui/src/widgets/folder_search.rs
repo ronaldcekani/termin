@@ -1,7 +1,7 @@
 //! Folder-search dropdown anchored under the top-bar search field.
 
 use crate::{
-    draw::{draw_text_mono, rounded_quad},
+    draw::{draw_text_ui, measure_text_ui, rounded_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -70,16 +70,15 @@ pub fn draw_dropdown<B: FontBackend>(
         1.0,
         tokens.border_default,
     ));
-    let cell_w = fonts.geo.cell_w;
+    let ui = &fonts.ui;
     if rows.is_empty() {
         let r = row_rect(dropdown, 0);
-        draw_text_mono(
+        draw_text_ui(
             glyphs,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             empty_label,
             r.x + 10.0,
-            r.y + (r.h - fonts.geo.cell_h) * 0.5,
+            r.y + (r.h - ui.geo.cell_h) * 0.5,
             r.w - 20.0,
             tokens.text_tertiary,
             layer,
@@ -100,12 +99,11 @@ pub fn draw_dropdown<B: FontBackend>(
                 Rgba::TRANSPARENT,
             ));
         }
-        let ty = r.y + (r.h - fonts.geo.cell_h) * 0.5;
-        let name_w = (r.w - 20.0).min(row.name.chars().count() as f32 * cell_w);
-        draw_text_mono(
+        let ty = r.y + (r.h - ui.geo.cell_h) * 0.5;
+        let name_w = measure_text_ui(glyphs, ui, row.name).min(r.w - 20.0);
+        draw_text_ui(
             glyphs,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             row.name,
             r.x + 10.0,
             ty,
@@ -113,12 +111,11 @@ pub fn draw_dropdown<B: FontBackend>(
             tokens.text_primary,
             layer,
         );
-        let dx = r.x + 10.0 + name_w + 2.0 * cell_w;
-        if dx + 4.0 * cell_w < r.right() - 10.0 {
-            draw_text_mono(
+        let dx = r.x + 10.0 + name_w + 12.0;
+        if dx + 32.0 < r.right() - 10.0 {
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                &fonts.ui,
                 row.detail,
                 dx,
                 ty,

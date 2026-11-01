@@ -6,7 +6,7 @@ use termin_core::{Point, Rect, Rgba};
 use termin_render::Layer;
 use termin_text::{FontBackend, GlyphCache};
 
-use crate::draw::{draw_text_mono, rounded_quad, solid_quad};
+use crate::draw::{draw_text_ui, rounded_quad, solid_quad};
 use crate::terminal_view::row::TermFonts;
 use crate::theme::Tokens;
 
@@ -170,10 +170,9 @@ impl PaneWidget {
         };
         let text_x = chip_rect.x + 8.0;
         let text_y = chip_rect.y + 5.0;
-        draw_text_mono(
+        draw_text_ui(
             glyphs,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             tab_title,
             text_x,
             text_y,
@@ -184,10 +183,9 @@ impl PaneWidget {
 
         // New tab / split button indicators on the right
         let right_pen = strip_rect.right() - 20.0;
-        draw_text_mono(
+        draw_text_ui(
             glyphs,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             "+",
             right_pen,
             strip_rect.y + 5.0,

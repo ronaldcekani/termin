@@ -1,6 +1,6 @@
 //! Small custom drawn icon button.
 use crate::{
-    draw::{draw_text_mono, rounded_quad},
+    draw::{draw_text_ui, measure_text_ui, rounded_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -29,13 +29,13 @@ pub fn draw_icon_button<B: FontBackend>(
             tokens.bg_surface_hover,
         ));
     }
-    draw_text_mono(
+    let gw = measure_text_ui(cache, &fonts.ui, glyph).min(rect.w);
+    draw_text_ui(
         cache,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         glyph,
-        rect.x + (rect.w - fonts.geo.cell_w) * 0.5,
-        rect.y + (rect.h - fonts.geo.cell_h) * 0.5,
+        rect.x + (rect.w - gw) * 0.5,
+        rect.y + (rect.h - fonts.ui.geo.cell_h) * 0.5,
         rect.w,
         if hovered {
             tokens.icon_hover

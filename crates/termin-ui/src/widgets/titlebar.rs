@@ -2,10 +2,10 @@
 //! button and the centered folder-search field (`docs/design/components.md §1`).
 
 use crate::{
-    draw::{draw_text_mono, icons, rounded_quad, solid_quad},
+    draw::{draw_text_ui, icons, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
-    widgets::text_field::TextField,
+    widgets::text_field::{draw_field_text, TextField},
 };
 use termin_core::Rect;
 use termin_render::Layer;
@@ -52,17 +52,6 @@ pub struct TitlebarView<'a> {
     /// `Some` while the search field is focused.
     pub query: Option<&'a TextField>,
     pub caret_visible: bool,
-}
-
-/// Slice of `text` holding at most `cols` chars starting at char index `start`.
-fn visible_slice(text: &str, start: usize, cols: usize) -> &str {
-    let b0 = text
-        .char_indices()
-        .nth(start)
-        .map_or(text.len(), |(b, _)| b);
-    let rest = &text[b0..];
-    let b1 = rest.char_indices().nth(cols).map_or(rest.len(), |(b, _)| b);
-    &rest[..b1]
 }
 
 /// Draw the bar into `layer` (clip it to the bar rect).
@@ -124,65 +113,39 @@ pub fn draw_titlebar<B: FontBackend>(
         },
     ));
     icons::magnifier(layer, s.x + 15.0, cy, 11.0, tokens.icon_default);
+    let ui = &fonts.ui;
     let tx = s.x + 29.0;
-    let ty = cy - fonts.geo.cell_h * 0.5;
-    let cols = (((s.right() - 10.0 - tx) / fonts.geo.cell_w).floor() as usize).max(1);
+    let ty = cy - ui.geo.cell_h * 0.5;
+    let avail = (s.right() - 10.0 - tx).max(1.0);
     match view.query {
         Some(field) if !field.text().is_empty() => {
-            let start = field.view_start(cols);
-            if let Some((a, b)) = field.selection() {
-                let (a, b) = (a.max(start), b.min(start + cols));
-                if b > a {
-                    layer.quads.push(solid_quad(
-                        tx + (a - start) as f32 * fonts.geo.cell_w,
-                        ty,
-                        (b - a) as f32 * fonts.geo.cell_w,
-                        fonts.geo.cell_h,
-                        tokens.bg_selected,
-                    ));
-                }
-            }
-            draw_text_mono(
-                glyphs,
-                fonts.font,
-                &fonts.geo,
-                visible_slice(field.text(), start, cols),
+            draw_field_text(
+                field,
+                view.caret_visible,
                 tx,
                 ty,
-                cols as f32 * fonts.geo.cell_w + 0.5,
-                tokens.text_primary,
+                avail,
+                tokens,
+                ui,
+                glyphs,
                 layer,
             );
-            if view.caret_visible {
-                layer.quads.push(solid_quad(
-                    tx + (field.caret() - start) as f32 * fonts.geo.cell_w,
-                    ty,
-                    1.5,
-                    fonts.geo.cell_h,
-                    tokens.text_primary,
-                ));
-            }
         }
         _ => {
-            draw_text_mono(
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                ui,
                 "Search folders…",
                 tx,
                 ty,
-                cols as f32 * fonts.geo.cell_w + 0.5,
+                avail,
                 tokens.text_tertiary,
                 layer,
             );
             if active && view.caret_visible {
-                layer.quads.push(solid_quad(
-                    tx,
-                    ty,
-                    1.5,
-                    fonts.geo.cell_h,
-                    tokens.text_primary,
-                ));
+                layer
+                    .quads
+                    .push(solid_quad(tx, ty, 1.5, ui.geo.cell_h, tokens.text_primary));
             }
         }
     }
@@ -211,12 +174,5 @@ mod tests {
                 assert!(l.search.right() <= w + 0.01);
             }
         }
-    }
-
-    #[test]
-    fn visible_slice_is_char_safe() {
-        assert_eq!(visible_slice("héllo wörld", 1, 4), "éllo");
-        assert_eq!(visible_slice("abc", 5, 2), "");
-        assert_eq!(visible_slice("abc", 0, 10), "abc");
     }
 }

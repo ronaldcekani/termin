@@ -220,7 +220,7 @@ impl FolderSearch {
             .spawn(move || {
                 let mut out = Vec::new();
                 if let Some(dir) = state_dir {
-                    if let Ok(Some(snap)) = termin_persist::load(&dir) {
+                    if let Some(snap) = termin_persist::load_readonly(&dir) {
                         snapshot_cwds(&snap, &mut out);
                     }
                 }

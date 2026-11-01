@@ -1,6 +1,6 @@
 //! Command palette panel renderer. Query state and ranking live in termin-app.
 use crate::{
-    draw::{draw_text_mono, rounded_quad, solid_quad},
+    draw::{draw_text_ui, rounded_quad, solid_quad},
     terminal_view::TermFonts,
     theme::Tokens,
 };
@@ -44,10 +44,9 @@ pub fn draw<B: FontBackend>(
         1.0,
         tokens.border_subtle,
     ));
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         if query.is_empty() {
             "Search actions, workspaces, tabs…"
         } else {
@@ -73,10 +72,9 @@ pub fn draw<B: FontBackend>(
                 Rgba::TRANSPARENT,
             ));
         }
-        draw_text_mono(
+        draw_text_ui(
             glyphs,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             row.title,
             x + 16.0,
             ry + 8.0,
@@ -85,10 +83,9 @@ pub fn draw<B: FontBackend>(
             layer,
         );
         if let Some(detail) = row.detail {
-            draw_text_mono(
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                &fonts.ui,
                 detail,
                 x + w * 0.56,
                 ry + 8.0,
@@ -98,10 +95,9 @@ pub fn draw<B: FontBackend>(
             );
         }
         if let Some(keys) = row.shortcut {
-            draw_text_mono(
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                &fonts.ui,
                 keys,
                 x + w - 100.0,
                 ry + 8.0,

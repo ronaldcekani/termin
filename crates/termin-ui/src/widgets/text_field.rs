@@ -1,7 +1,7 @@
 //! Single-line inline text field (rename editor): editing logic plus a proportional-text renderer.
 
 use crate::{
-    draw::{draw_text_ui, measure_text_ui, rounded_quad, solid_quad},
+    draw::{draw_text_ui, measure_text_ui, rounded_quad, solid_quad, UiFont},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -253,11 +253,38 @@ pub fn draw_text_field<B: FontBackend>(
         tokens.accent_tide,
     ));
     let ui = &fonts.ui;
-    let cell_h = ui.geo.cell_h;
     let pad = 6.0;
     let avail = (rect.w - 2.0 * pad).max(1.0);
-    let tx = rect.x + pad;
-    let ty = rect.y + ((rect.h - cell_h) * 0.5).max(0.0);
+    let ty = rect.y + ((rect.h - ui.geo.cell_h) * 0.5).max(0.0);
+    draw_field_text(
+        field,
+        caret_visible,
+        rect.x + pad,
+        ty,
+        avail,
+        tokens,
+        ui,
+        glyphs,
+        layer,
+    );
+}
+
+/// Draw `field`'s selection, text and caret with its line box top-left at `(tx, ty)`, scrolled
+/// horizontally so the caret stays within `avail` points. Caret and selection x positions come
+/// from measured advances of the proportional UI font.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_field_text<B: FontBackend>(
+    field: &TextField,
+    caret_visible: bool,
+    tx: f32,
+    ty: f32,
+    avail: f32,
+    tokens: &Tokens,
+    ui: &UiFont,
+    glyphs: &mut GlyphCache<B>,
+    layer: &mut Layer,
+) {
+    let cell_h = ui.geo.cell_h;
     let text = field.text();
     // Byte offset of char index `i` (clamped to the end).
     let byte_at = |i: usize| text.char_indices().nth(i).map_or(text.len(), |(b, _)| b);

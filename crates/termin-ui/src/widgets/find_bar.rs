@@ -1,6 +1,6 @@
 //! Find overlay bar for the focused pane.
 use crate::{
-    draw::{draw_text_mono, rounded_quad},
+    draw::{draw_text_ui, rounded_quad},
     terminal_view::TermFonts,
     theme::Tokens,
 };
@@ -30,10 +30,9 @@ pub fn draw<B: FontBackend>(
         1.0,
         tokens.border_subtle,
     ));
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         "⌕",
         x + 8.0,
         y + 8.0,
@@ -41,10 +40,9 @@ pub fn draw<B: FontBackend>(
         tokens.icon_default,
         layer,
     );
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         query,
         x + 30.0,
         y + 8.0,
@@ -55,10 +53,9 @@ pub fn draw<B: FontBackend>(
     let count_text = count
         .map(|(a, b)| format!("{a}/{b}"))
         .unwrap_or_else(|| "0/0".to_owned());
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         &count_text,
         x + 178.0,
         y + 8.0,
@@ -70,10 +67,9 @@ pub fn draw<B: FontBackend>(
         },
         layer,
     );
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         if case_sensitive { "Aa" } else { "aa" },
         x + 224.0,
         y + 8.0,
@@ -81,10 +77,9 @@ pub fn draw<B: FontBackend>(
         tokens.text_secondary,
         layer,
     );
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         "↑ ↓ ×",
         x + 254.0,
         y + 8.0,

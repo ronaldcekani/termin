@@ -69,6 +69,15 @@ fn find_bad_path(original: &Path) -> PathBuf {
     }
 }
 
+/// Read-only variant of [`load`]: parses `session.json` without quarantining, renaming or
+/// writing anything. Returns `None` if the file is missing, unreadable, malformed or of an
+/// unsupported version. Safe to call from background threads.
+pub fn load_readonly(dir: &Path) -> Option<Snapshot> {
+    let data = fs::read(dir.join("session.json")).ok()?;
+    let snapshot: Snapshot = serde_json::from_slice(&data).ok()?;
+    (snapshot.version == SNAPSHOT_VERSION).then_some(snapshot)
+}
+
 /// Load session snapshot from the given directory (e.g. `Application Support/Termin/`).
 ///
 /// If `session.json` is missing, returns `Ok(None)`.

@@ -1,7 +1,7 @@
 //! Workspace sidebar rendering primitives (app-model-and-ui.md §3).
 
 use crate::{
-    draw::{draw_text_mono, rounded_quad, solid_quad},
+    draw::{draw_text_ui, measure_text_ui, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -107,11 +107,10 @@ pub fn draw_sidebar<B: FontBackend>(
         } else {
             ws.name
         };
-        let mut ty = rect.y + 9.0;
-        draw_text_mono(
+        let mut ty = rect.y + 9.0 + ((18.0 - fonts.ui.geo.cell_h) * 0.5).max(0.0);
+        draw_text_ui(
             glyphs,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             name,
             rect.x + 17.0,
             ty,
@@ -120,12 +119,13 @@ pub fn draw_sidebar<B: FontBackend>(
             layer,
         );
         if unread > 0 {
-            draw_text_mono(
+            let badge = unread.to_string();
+            let bw = measure_text_ui(glyphs, &fonts.ui, &badge).min(20.0);
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
-                &unread.to_string(),
-                rect.right() - 28.0,
+                &fonts.ui,
+                &badge,
+                rect.right() - 12.0 - bw,
                 ty,
                 20.0,
                 tokens.accent_ember,
@@ -134,10 +134,9 @@ pub fn draw_sidebar<B: FontBackend>(
         }
         ty += 18.0;
         if let Some(s) = status {
-            draw_text_mono(
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                &fonts.ui,
                 s,
                 rect.x + 17.0,
                 ty,
@@ -157,10 +156,9 @@ pub fn draw_sidebar<B: FontBackend>(
             if ws.git_dirty {
                 label.push('*');
             }
-            draw_text_mono(
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                &fonts.ui,
                 &label,
                 rect.x + 17.0,
                 ty,
@@ -171,10 +169,9 @@ pub fn draw_sidebar<B: FontBackend>(
             ty += 18.0;
         }
         for path in ws.paths.iter().take(3) {
-            draw_text_mono(
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                &fonts.ui,
                 path,
                 rect.x + 17.0,
                 ty,
@@ -197,10 +194,9 @@ pub fn draw_sidebar<B: FontBackend>(
                 use std::fmt::Write;
                 let _ = write!(p, " +{}", ws.ports.len() - 4);
             }
-            draw_text_mono(
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                &fonts.ui,
                 &p,
                 rect.x + 17.0,
                 ty,

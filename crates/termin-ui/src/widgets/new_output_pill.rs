@@ -1,6 +1,6 @@
 //! Scroll-to-bottom affordance shown while output arrives off-screen.
 use crate::{
-    draw::{draw_text_mono, rounded_quad},
+    draw::{draw_text_ui, rounded_quad},
     terminal_view::TermFonts,
     Tokens,
 };
@@ -28,13 +28,12 @@ impl NewOutputPill {
             0.0,
             tokens.border_subtle,
         ));
-        draw_text_mono(
+        draw_text_ui(
             glyphs,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             "↓  New output",
             rect.x + 10.0,
-            rect.y + (rect.h - fonts.geo.cell_h) * 0.5,
+            rect.y + (rect.h - fonts.ui.geo.cell_h) * 0.5,
             rect.w - 20.0,
             tokens.text_primary,
             layer,

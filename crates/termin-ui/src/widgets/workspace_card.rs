@@ -1,6 +1,6 @@
 //! Workspace card component; sidebar collection and hit routing are app-owned.
 use crate::{
-    draw::{draw_text_mono, rounded_quad, solid_quad},
+    draw::{draw_text_ui, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -69,10 +69,9 @@ pub fn draw_workspace_card<B: FontBackend>(
         ));
     }
     let mut y = rect.y + 8.0;
-    draw_text_mono(
+    draw_text_ui(
         cache,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         title,
         rect.x + 12.0,
         y,
@@ -81,10 +80,9 @@ pub fn draw_workspace_card<B: FontBackend>(
         layer,
     );
     if badge > 0 {
-        draw_text_mono(
+        draw_text_ui(
             cache,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             &badge.to_string(),
             rect.right() - 28.0,
             y,
@@ -100,10 +98,9 @@ pub fn draw_workspace_card<B: FontBackend>(
         .chain(git.into_iter().map(|x| (x, tokens.text_secondary)))
         .chain(paths.iter().take(3).map(|x| (*x, tokens.text_tertiary)))
     {
-        draw_text_mono(
+        draw_text_ui(
             cache,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             line,
             rect.x + 12.0,
             y,
@@ -123,10 +120,9 @@ pub fn draw_workspace_card<B: FontBackend>(
             use std::fmt::Write;
             let _ = write!(s, " +{}", ports.len() - 4);
         }
-        draw_text_mono(
+        draw_text_ui(
             cache,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             &s,
             rect.x + 12.0,
             y,

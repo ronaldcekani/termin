@@ -1,6 +1,6 @@
 //! Compact keyboard shortcut keycaps for palette rows.
 use crate::{
-    draw::{draw_text_mono, rounded_quad},
+    draw::{draw_text_ui, measure_text_ui, rounded_quad},
     terminal_view::TermFonts,
     theme::Tokens,
 };
@@ -18,7 +18,7 @@ pub fn draw<B: FontBackend>(
 ) -> f32 {
     let mut pen = x;
     for key in text.split('+') {
-        let w = (key.chars().count() as f32 * fonts.geo.cell_w + 10.0).max(16.0);
+        let w = (measure_text_ui(glyphs, &fonts.ui, key) + 10.0).max(16.0);
         layer.quads.push(rounded_quad(
             pen,
             y,
@@ -29,10 +29,9 @@ pub fn draw<B: FontBackend>(
             0.0,
             Rgba::TRANSPARENT,
         ));
-        draw_text_mono(
+        draw_text_ui(
             glyphs,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             key,
             pen + 5.0,
             y + 3.0,

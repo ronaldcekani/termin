@@ -8,7 +8,7 @@ pub mod snapshot;
 pub mod state;
 
 pub use error::PersistError;
-pub use io::{load, load_state, save, save_state};
+pub use io::{load, load_readonly, load_state, save, save_state};
 pub use snapshot::{
     PaneSnapshot, SidebarSnapshot, Snapshot, TabSnapshot, TreeSnapshot, WindowSnapshot,
     WorkspaceSnapshot, SNAPSHOT_VERSION,
@@ -175,6 +175,23 @@ mod tests {
             }
         }
         assert!(found_bad, "Quarantined bad session file must exist");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_readonly_leaves_malformed_untouched() {
+        let temp_dir = std::env::temp_dir().join(format!("termin-test-ro-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let session_file = temp_dir.join("session.json");
+        let bad_content = b"{\"version\": 1, [broken";
+        fs::write(&session_file, bad_content).unwrap();
+
+        assert!(load_readonly(&temp_dir).is_none());
+        assert_eq!(fs::read(&session_file).unwrap(), bad_content);
+        assert_eq!(fs::read_dir(&temp_dir).unwrap().count(), 1);
+        assert!(load_readonly(&temp_dir.join("missing")).is_none());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

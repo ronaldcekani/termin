@@ -1,6 +1,6 @@
 //! Non-modal window banner renderer.
 use crate::{
-    draw::{draw_text_mono, solid_quad},
+    draw::{draw_text_ui, solid_quad},
     terminal_view::TermFonts,
     theme::Tokens,
 };
@@ -33,10 +33,9 @@ pub fn draw<B: FontBackend>(
     layer
         .quads
         .push(solid_quad(rect.x, rect.y, 3.0, 32.0, color));
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         message,
         rect.x + 12.0,
         rect.y + 9.0,
@@ -45,10 +44,9 @@ pub fn draw<B: FontBackend>(
         layer,
     );
     if let Some(label) = action {
-        draw_text_mono(
+        draw_text_ui(
             glyphs,
-            fonts.font,
-            &fonts.geo,
+            &fonts.ui,
             label,
             rect.right() - 100.0,
             rect.y + 9.0,
@@ -57,10 +55,9 @@ pub fn draw<B: FontBackend>(
             layer,
         );
     }
-    draw_text_mono(
+    draw_text_ui(
         glyphs,
-        fonts.font,
-        &fonts.geo,
+        &fonts.ui,
         "×",
         rect.right() - 20.0,
         rect.y + 9.0,

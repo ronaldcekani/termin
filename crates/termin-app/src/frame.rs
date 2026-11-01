@@ -147,10 +147,10 @@ pub fn render_window_frame(
             {
                 if let Some((_, card)) = hits.iter().find(|(id, _)| id == ws) {
                     let rect = Rect::new(
-                        card.x + 6.0,
+                        card.x + 11.0,
                         card.y + 4.0,
-                        card.w - 12.0,
-                        fonts.geo.cell_h + 10.0,
+                        card.w - 22.0,
+                        fonts.ui.geo.cell_h + 10.0,
                     );
                     let mut layer = Layer::new(Some(*card));
                     draw_text_field(

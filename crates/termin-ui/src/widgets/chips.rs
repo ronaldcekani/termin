@@ -1,6 +1,6 @@
 //! Compact context chips above the input editor (`components.md §5, §15`).
 use crate::{
-    draw::{draw_text_mono, rounded_quad},
+    draw::{draw_text_ui, measure_text_ui, rounded_quad},
     terminal_view::TermFonts,
     Tokens,
 };
@@ -40,8 +40,9 @@ impl ContextChips {
         let mut hits = Vec::with_capacity(items.len());
         let mut x = rect.x;
         for (idx, item) in items.iter().enumerate() {
-            let width = ((item.chars().count() as f32 * fonts.geo.cell_w) + 16.0)
-                .clamp(32.0, rect.right() - x);
+            let width = (measure_text_ui(glyphs, &fonts.ui, item) + 16.0)
+                .max(32.0)
+                .min(rect.right() - x);
             if width <= 0.0 {
                 break;
             }
@@ -56,13 +57,12 @@ impl ContextChips {
                 0.0,
                 tokens.border_subtle,
             ));
-            draw_text_mono(
+            draw_text_ui(
                 glyphs,
-                fonts.font,
-                &fonts.geo,
+                &fonts.ui,
                 item,
                 x + 8.0,
-                rect.y + (rect.h - fonts.geo.cell_h) * 0.5,
+                rect.y + (rect.h - fonts.ui.geo.cell_h) * 0.5,
                 width - 16.0,
                 tokens.text_secondary,
                 layer,
@@ -86,9 +86,7 @@ impl ContextChips {
 
     /// Hit-test a click position against rendered chip hit regions.
     pub fn hit_test(hits: &[ChipHit], pt: Point) -> Option<ChipKind> {
-        hits.iter()
-            .find(|h| h.rect.contains(pt))
-            .map(|h| h.kind)
+        hits.iter().find(|h| h.rect.contains(pt)).map(|h| h.kind)
     }
 }
 
