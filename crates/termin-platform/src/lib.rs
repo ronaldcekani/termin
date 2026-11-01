@@ -221,6 +221,19 @@ impl PlatformCx {
         }
     }
 
+    /// Regions (within drag regions) where a double-click is delivered to the app
+    /// as a normal mouse event instead of zooming the window.
+    pub fn set_dblclick_regions(&mut self, w: WindowId, regions: Vec<Rect>) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_set_dblclick_regions(w, regions);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (w, regions);
+        }
+    }
+
     /// Set window drag regions in view coordinates.
     pub fn set_drag_regions(&mut self, w: WindowId, regions: Vec<Rect>) {
         #[cfg(target_os = "macos")]

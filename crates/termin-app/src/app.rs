@@ -49,6 +49,9 @@ pub struct App {
     /// Last drag regions sent to the platform per window, plus a scratch buffer.
     drag_regions: FxHashMap<WindowId, Vec<Rect>>,
     drag_scratch: Vec<Rect>,
+    /// Same, for tab-strip double-click (new tab) regions.
+    dbl_regions: FxHashMap<WindowId, Vec<Rect>>,
+    dbl_scratch: Vec<Rect>,
 }
 
 /// Focused tab in block mode, resolved for one input event.
@@ -114,6 +117,8 @@ impl App {
             block_scratch: RowInstances::default(),
             drag_regions: FxHashMap::default(),
             drag_scratch: Vec::new(),
+            dbl_regions: FxHashMap::default(),
+            dbl_scratch: Vec::new(),
         }
     }
 
@@ -287,6 +292,12 @@ impl App {
             self.drag_regions.insert(win, regions.clone());
             cx.set_drag_regions(win, regions);
         }
+        crate::frame::dblclick_regions_into(&self.model, win, &mut self.dbl_scratch);
+        if self.dbl_regions.get(&win) != Some(&self.dbl_scratch) {
+            let regions = self.dbl_scratch.clone();
+            self.dbl_regions.insert(win, regions.clone());
+            cx.set_dblclick_regions(win, regions);
+        }
     }
 
     pub fn update_font_size(&mut self, size: f32) {
@@ -386,6 +397,13 @@ impl AppHandler for App {
     fn event(&mut self, cx: &mut PlatformCx, win: WindowId, ev: PlatformEvent) {
         match ev {
             PlatformEvent::Key(key_ev) => {
+                // An inline rename field owns the keyboard until committed/cancelled.
+                if let Some(redraw) = self.model.rename_key(&key_ev) {
+                    if redraw {
+                        cx.request_frame(win);
+                    }
+                    return;
+                }
                 if key_ev.pressed {
                     if let Some(action) = self
                         .keymap
@@ -441,6 +459,12 @@ impl AppHandler for App {
                 }
             }
             PlatformEvent::ImeCommit(text) => {
+                if let Some(redraw) = self.model.rename_text(&text) {
+                    if redraw {
+                        cx.request_frame(win);
+                    }
+                    return;
+                }
                 if let Some(target) = self.focused_block_target() {
                     if self.block_mode.insert_text(target.tab, &target.cwd, &text) {
                         cx.request_frame(win);

@@ -91,7 +91,7 @@ pub struct WorkspaceSnapshot {
 impl WorkspaceSnapshot {
     pub fn default_workspace() -> Self {
         Self {
-            name: "Default".to_string(),
+            name: String::new(),
             focused_pane: vec![0],
             zoomed: None,
             tree: TreeSnapshot::pane(PaneSnapshot::new(
