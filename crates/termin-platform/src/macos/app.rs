@@ -447,6 +447,9 @@ pub fn cx_close_window(win_id: WindowId) {
         win_state
     });
     if let Some(win_state) = removed {
+        // NSWindow holds its delegate unretained; detach it before our
+        // `Retained<WindowDelegate>` drops so close animations can't call into freed memory.
+        win_state.window.setDelegate(None);
         win_state.window.close();
     }
 }

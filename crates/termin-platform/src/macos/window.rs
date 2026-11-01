@@ -159,6 +159,10 @@ pub fn create_native_window(
         )
     };
 
+    // SAFETY: main thread. Ownership stays with our `Retained`; with the AppKit
+    // default (YES) `close` would release the window a second time.
+    unsafe { window.setReleasedWhenClosed(false) };
+
     // Style window per docs/specs/platform-macos.md §2
     unsafe {
         window.setTitlebarAppearsTransparent(true);
