@@ -2,6 +2,8 @@
 //!
 //! See `docs/architecture.md §4.1` and `docs/specs/text-and-rendering.md §3`.
 
+use std::time::{Duration, Instant};
+
 use rustc_hash::FxHashMap;
 use termin_core::{PaneId, Rect, Size, WindowId};
 use termin_platform::RenderTarget;
@@ -22,6 +24,9 @@ use termin_ui::widgets::tabstrip::StripLayout;
 
 use crate::block_mode::{BlockMode, BlockTab};
 use crate::model::AppModel;
+
+/// Minimum interval between PTY winsize/reflow updates per pane while the grid size is changing.
+const RESIZE_THROTTLE: Duration = Duration::from_millis(48);
 
 struct RenderTargetAdapter<'a>(&'a mut dyn RenderTarget);
 
@@ -49,7 +54,9 @@ pub fn render_window_frame(
     cursor_blink_visible: bool,
     block_mode: &mut BlockMode,
     block_scratch: &mut RowInstances,
-) {
+    resize_times: &mut FxHashMap<PaneId, Instant>,
+) -> bool {
+    let mut resize_pending = false;
     let size = target.size();
     let scale = target.scale_factor();
 
@@ -62,7 +69,7 @@ pub fn render_window_frame(
     let min_pane_size = Size::new(fonts.geo.cell_w * 12.0, fonts.geo.cell_h * 3.0);
     let layout = match model.layout(win_id, min_pane_size) {
         Some(l) => l.clone(),
-        None => return,
+        None => return false,
     };
 
     let mut draw_list = DrawList::new();
@@ -191,14 +198,31 @@ pub fn render_window_frame(
 
                     // Resize through Session only after releasing its terminal lock:
                     // Session::resize locks the same terminal to update the consumer.
-                    let needs_resize = session
+                    // During live resize the PTY winsize + reflow is throttled; the
+                    // view keeps rendering the terminal's current grid meanwhile.
+                    let (cur_cols, cur_rows) = session
                         .term
                         .lock()
-                        .map(|term| term.cols() != cols || term.rows() != rows)
-                        .unwrap_or(false);
-                    if needs_resize {
-                        session.resize(cols, rows, (content_rect.w as u16, content_rect.h as u16));
-                    }
+                        .map(|term| (term.cols(), term.rows()))
+                        .unwrap_or((cols, rows));
+                    let (cols, rows) = if cur_cols != cols || cur_rows != rows {
+                        let now = Instant::now();
+                        let due = resize_times
+                            .get(&pane_id)
+                            .map_or(true, |t| now.duration_since(*t) >= RESIZE_THROTTLE);
+                        if due {
+                            resize_times.insert(pane_id, now);
+                            let px_w = (content_rect.w * scale).round() as u16;
+                            let px_h = (content_rect.h * scale).round() as u16;
+                            session.resize(cols, rows, (px_w, px_h));
+                            (cols, rows)
+                        } else {
+                            resize_pending = true;
+                            (cur_cols, cur_rows)
+                        }
+                    } else {
+                        (cols, rows)
+                    };
 
                     let block_tab = match session.term.lock() {
                         Ok(term) if block_mode.is_active(tab, &term) => {
@@ -230,7 +254,7 @@ pub fn render_window_frame(
                         let view_key = ViewKey {
                             cols,
                             rows,
-                            epoch: 0,
+                            epoch: scale.to_bits(),
                             atlas_epoch: glyphs.epoch,
                         };
 
@@ -316,6 +340,7 @@ pub fn render_window_frame(
         let mut adapter = RenderTargetAdapter(target);
         renderer.render(&mut adapter, &draw_list, tokens.bg_app);
     }
+    resize_pending
 }
 
 /// Per-pane inputs for [`render_block_pane`].

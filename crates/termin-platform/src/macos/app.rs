@@ -300,6 +300,14 @@ pub fn dispatch_sync_render(win_id: WindowId) {
     });
 
     if let Some(mut target) = target_opt {
+        // The resize event that preceded this call armed a display-link frame;
+        // this synchronous render supersedes it, so drop the pending request
+        // (a frame requested *during* the render below is kept).
+        with_state(|state| {
+            if let Some((req_flag, _)) = state.window_flags.get(&win_id) {
+                req_flag.store(false, Ordering::Release);
+            }
+        });
         // SAFETY: Presents with transaction during live resize.
         unsafe {
             target.metal_layer.setPresentsWithTransaction(true);

@@ -32,6 +32,8 @@ pub struct App {
     pub palette: TermPalette,
     pub tokens: Tokens,
     pub pane_caches: FxHashMap<PaneId, PaneRenderCache>,
+    /// Last PTY winsize/reflow time per pane (live-resize throttle).
+    pub resize_times: FxHashMap<PaneId, std::time::Instant>,
     pub scroll_remainders: FxHashMap<PaneId, f32>,
     /// Session handles keyed by model tab id, retained after model removal until exit.
     pub session_handles: FxHashMap<TabId, Arc<Session<Terminal>>>,
@@ -101,6 +103,7 @@ impl App {
             palette,
             tokens,
             pane_caches: FxHashMap::default(),
+            resize_times: FxHashMap::default(),
             scroll_remainders: FxHashMap::default(),
             session_handles: FxHashMap::default(),
             session_windows: FxHashMap::default(),
@@ -301,10 +304,39 @@ impl App {
         let font_id = self.glyphs.backend.resolve(&spec);
         let metrics = self.glyphs.backend.metrics(font_id);
         self.fonts = TermFonts::new(font_id, &metrics, self.fonts.geo.scale);
+        self.invalidate_render_caches();
+    }
+
+    fn invalidate_render_caches(&mut self) {
         self.glyphs.clear();
         for cache in self.pane_caches.values_mut() {
             cache.invalidate();
         }
+    }
+
+    /// Apply a new backing scale factor: rebuild font metrics at that scale and drop every
+    /// cache whose contents depend on it (glyph atlas, row caches). The grid size and PTY
+    /// winsize are recomputed on the next frame from the new cell size.
+    fn apply_scale(&mut self, scale: f32) {
+        if !scale.is_finite() || scale < 1.0 || (scale - self.fonts.geo.scale).abs() < 1e-3 {
+            return;
+        }
+        self.glyphs.backend.set_scale(scale);
+        let spec = FontSpec {
+            family: if self.config.font.family.is_empty() {
+                None
+            } else {
+                Some(self.config.font.family.clone())
+            },
+            size_pt: self.font_size,
+            weight: termin_text::FontWeight::Regular,
+            italic: false,
+        };
+        let font_id = self.glyphs.backend.resolve(&spec);
+        let metrics = self.glyphs.backend.metrics(font_id);
+        self.fonts = TermFonts::new(font_id, &metrics, scale);
+        self.invalidate_render_caches();
+        self.resize_times.clear();
     }
 }
 
@@ -456,7 +488,7 @@ impl AppHandler for App {
                 if let Some(win_state) = self.model.windows.get_mut(win) {
                     win_state.size = size;
                 }
-                self.fonts.geo.scale = scale;
+                self.apply_scale(scale);
                 cx.request_frame(win);
             }
             PlatformEvent::Focus(focused) => {
@@ -474,9 +506,13 @@ impl AppHandler for App {
     }
 
     fn frame(&mut self, cx: &mut PlatformCx, win: WindowId, target: &mut dyn RenderTarget) {
+        // The render target is the source of truth for the backing scale (covers the initial
+        // frame and moving between displays with different scale factors).
+        self.apply_scale(target.scale_factor());
         self.update_drag_regions(cx, win);
+        let mut resize_pending = false;
         if let Some(ref mut renderer) = self.renderer {
-            render_window_frame(
+            resize_pending = render_window_frame(
                 &mut self.model,
                 win,
                 target,
@@ -489,7 +525,11 @@ impl AppHandler for App {
                 self.cursor_blink_visible,
                 &mut self.block_mode,
                 &mut self.block_scratch,
+                &mut self.resize_times,
             );
+        }
+        if resize_pending {
+            cx.request_frame(win);
         }
     }
 
