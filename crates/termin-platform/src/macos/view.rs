@@ -669,6 +669,7 @@ declare_class!(
 
         #[method(setFrameSize:)]
         unsafe fn set_frame_size(&self, new_size: NSSize) {
+            let tick = termin_core::trace::span(termin_core::trace::Phase::Tick);
             let () = msg_send![super(self), setFrameSize: new_size];
 
             let win_id = self.ivars().window_id.get();
@@ -690,23 +691,30 @@ declare_class!(
                 // Skip the (costly, drawable-reallocating) call when unchanged.
                 let cur = metal_layer.drawableSize();
                 if cur.width != want.width || cur.height != want.height {
+                    let _t = termin_core::trace::span(termin_core::trace::Phase::DrawableResize);
                     metal_layer.setDrawableSize(want);
                 }
             }
 
             crate::macos::app::set_window_size_and_scale(win_id, size, scale);
-            crate::macos::app::dispatch_event(
-                win_id,
-                PlatformEvent::Resized { size, scale },
-            );
+            {
+                let _t = termin_core::trace::span(termin_core::trace::Phase::ResizeEvent);
+                crate::macos::app::dispatch_event(
+                    win_id,
+                    PlatformEvent::Resized { size, scale },
+                );
+            }
 
             // Synchronous live render during window resizing
             crate::macos::app::dispatch_sync_render(win_id);
+            drop(tick);
+            termin_core::trace::end_tick(size.w, size.h);
         }
 
         #[method(viewDidEndLiveResize)]
         unsafe fn view_did_end_live_resize(&self) {
             let () = msg_send![super(self), viewDidEndLiveResize];
+            termin_core::trace::end_session();
             // Final frame so any throttled terminal reflow settles promptly.
             let win_id = self.ivars().window_id.get();
             let bounds = self.bounds();

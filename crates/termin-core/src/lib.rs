@@ -9,6 +9,7 @@ pub mod input;
 pub mod pty;
 pub mod slab;
 pub mod small_str;
+pub mod trace;
 pub mod wake;
 
 pub use color::Rgba;

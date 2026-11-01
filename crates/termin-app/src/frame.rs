@@ -287,7 +287,12 @@ pub fn render_window_frame(
                             resize_times.insert(pane_id, now);
                             let px_w = (content_rect.w * scale).round() as u16;
                             let px_h = (content_rect.h * scale).round() as u16;
-                            session.resize(cols, rows, (px_w, px_h));
+                            {
+                                let _t = termin_core::trace::span(
+                                    termin_core::trace::Phase::TermResize,
+                                );
+                                session.resize(cols, rows, (px_w, px_h));
+                            }
                             (cols, rows)
                         } else {
                             resize_pending = true;

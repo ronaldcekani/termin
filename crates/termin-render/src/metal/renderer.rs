@@ -180,7 +180,10 @@ impl MetalRenderer {
         clear: Rgba,
     ) -> Result<(), RenderError> {
         // SAFETY: Obtaining next drawable from CAMetalLayer.
-        let drawable = unsafe { layer.nextDrawable() }.ok_or(RenderError::DrawableUnavailable)?;
+        let drawable = {
+            let _t = termin_core::trace::span(termin_core::trace::Phase::NextDrawable);
+            unsafe { layer.nextDrawable() }.ok_or(RenderError::DrawableUnavailable)?
+        };
 
         // SAFETY: Querying texture from valid CAMetalDrawable.
         let texture = unsafe { drawable.texture() };
@@ -219,7 +222,11 @@ impl MetalRenderer {
         }
 
         // Wait on the 2-frame dispatch semaphore
-        self.ring.semaphore.wait_for_slot();
+        {
+            let _t = termin_core::trace::span(termin_core::trace::Phase::SlotWait);
+            self.ring.semaphore.wait_for_slot();
+        }
+        let encode_span = termin_core::trace::span(termin_core::trace::Phase::Encode);
         let slot_idx = self.ring.next_slot();
 
         // Count instance totals for the frame
@@ -416,21 +423,28 @@ impl MetalRenderer {
 
         encoder.endEncoding();
 
+        drop(encode_span);
         if present_with_transaction {
             // CAMetalLayer.presentsWithTransaction requires: commit, wait until
             // scheduled, then present, so the frame lands in the current CA
             // transaction (in sync with the resizing window).
-            cmd_buf.commit();
-            cmd_buf.waitUntilScheduled();
+            {
+                let _t = termin_core::trace::span(termin_core::trace::Phase::Submit);
+                cmd_buf.commit();
+                cmd_buf.waitUntilScheduled();
+            }
             if let Some(d) = drawable {
+                let _t = termin_core::trace::span(termin_core::trace::Phase::Present);
                 let mtl_d: &ProtocolObject<dyn MTLDrawable> = ProtocolObject::from_ref(d);
                 mtl_d.present();
             }
         } else {
             if let Some(d) = drawable {
+                let _t = termin_core::trace::span(termin_core::trace::Phase::Present);
                 let mtl_d: &ProtocolObject<dyn MTLDrawable> = ProtocolObject::from_ref(d);
                 cmd_buf.presentDrawable(mtl_d);
             }
+            let _t = termin_core::trace::span(termin_core::trace::Phase::Submit);
             cmd_buf.commit();
         }
 

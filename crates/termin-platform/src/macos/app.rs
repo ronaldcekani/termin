@@ -312,9 +312,12 @@ pub fn dispatch_sync_render(win_id: WindowId) {
         unsafe {
             target.metal_layer.setPresentsWithTransaction(true);
         }
-        run_handler(|handler, cx| {
-            handler.frame(cx, win_id, &mut target);
-        });
+        {
+            let _t = termin_core::trace::span(termin_core::trace::Phase::Frame);
+            run_handler(|handler, cx| {
+                handler.frame(cx, win_id, &mut target);
+            });
+        }
         // SAFETY: Reset presentsWithTransaction after frame.
         unsafe {
             target.metal_layer.setPresentsWithTransaction(false);
