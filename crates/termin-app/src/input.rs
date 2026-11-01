@@ -441,7 +441,8 @@ fn handle_tabstrip_click(
             18.0,
             18.0,
         );
-        if close_rect.contains(pos) && index == active && tab_ids.len() > 1 {
+        // Any tab's × closes it; closing a pane's last tab collapses the split.
+        if close_rect.contains(pos) {
             return model.close_tab(*tab_id);
         }
         if tab_rect.contains(pos) {
@@ -689,7 +690,7 @@ mod routing_tests {
     }
 
     #[test]
-    fn hidden_inactive_close_area_selects_instead_of_closing() {
+    fn hovered_inactive_close_button_closes_that_tab() {
         let mut model = AppModel::new();
         model.new_window(None, Size::new(900.0, 600.0), None);
         let pane = model.focused_pane().unwrap();
@@ -701,9 +702,26 @@ mod routing_tests {
         let tab = layout.tab_rect(rect, 1).unwrap();
         let pos = Point::new(tab.right() - 14.0, tab.y + tab.h * 0.5);
         assert!(handle_tabstrip_click(&mut model, pane, rect, pos, 1));
-        assert_eq!(model.panes.get(pane).unwrap().active_tab, second);
         assert!(model.tabs.contains(first));
-        assert!(model.tabs.contains(second));
+        assert!(!model.tabs.contains(second));
+    }
+
+    #[test]
+    fn closing_single_tab_of_split_pane_collapses_split() {
+        let mut model = AppModel::new();
+        model.new_window(None, Size::new(1000.0, 700.0), None);
+        let first_pane = model.focused_pane().unwrap();
+        let (second_pane, second_tab) = model
+            .split_pane(first_pane, Dir::Right, true)
+            .expect("split pane");
+        let rect = Rect::new(0.0, 0.0, 400.0, TAB_STRIP_HEIGHT);
+        let layout = termin_ui::widgets::tabstrip::StripLayout::new(rect, 1, 0);
+        let tab = layout.tab_rect(rect, 0).unwrap();
+        let pos = Point::new(tab.right() - 14.0, tab.y + tab.h * 0.5);
+        assert!(handle_tabstrip_click(&mut model, second_pane, rect, pos, 1));
+        assert!(!model.tabs.contains(second_tab));
+        assert!(!model.panes.contains(second_pane));
+        assert!(model.panes.contains(first_pane));
     }
 
     #[test]
