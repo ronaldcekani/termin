@@ -10,7 +10,7 @@ use crate::draw::{draw_text_mono, rounded_quad, solid_quad};
 use crate::terminal_view::row::TermFonts;
 use crate::theme::Tokens;
 
-pub const TAB_STRIP_HEIGHT: f32 = 28.0;
+pub const TAB_STRIP_HEIGHT: f32 = 38.0;
 
 /// Drop zone within a pane when dragging a tab.
 ///
@@ -103,14 +103,7 @@ impl SplitDropZone {
         let border = tokens.accent_tide;
 
         layer.quads.push(rounded_quad(
-            preview.x,
-            preview.y,
-            preview.w,
-            preview.h,
-            fill,
-            4.0,
-            2.0,
-            border,
+            preview.x, preview.y, preview.w, preview.h, fill, 4.0, 2.0, border,
         ));
     }
 }

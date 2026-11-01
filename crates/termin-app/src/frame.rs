@@ -141,7 +141,17 @@ pub fn render_window_frame(
                     let tab = model.tabs.get(tab_id)?;
                     Some((
                         tab_id,
-                        tab.title.display(),
+                        // Prefer the cwd basename over the generic "shell" fallback.
+                        match (tab.title.display(), tab.cwd.as_deref()) {
+                            ("shell", Some(cwd)) => {
+                                let base = cwd.trim_end_matches('/').rsplit('/').next();
+                                match base {
+                                    Some(b) if !b.is_empty() => b,
+                                    _ => "~",
+                                }
+                            }
+                            (t, _) => t,
+                        },
                         TabState {
                             active: tab_id == pane.active_tab,
                             focused_pane: is_focused,

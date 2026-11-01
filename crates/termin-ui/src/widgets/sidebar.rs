@@ -1,7 +1,7 @@
 //! Workspace sidebar rendering primitives (app-model-and-ui.md §3).
 
 use crate::{
-    draw::{draw_text_mono, rounded_quad, solid_quad},
+    draw::{draw_text_mono, icons, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -51,7 +51,16 @@ pub fn draw_sidebar<B: FontBackend>(
         sidebar.h,
         tokens.border_subtle,
     ));
-    let header = Rect::new(sidebar.x + 10.0, sidebar.y + 7.0, sidebar.w - 20.0, 30.0);
+    // Header band is 38pt tall, aligned with the traffic-light row and the
+    // pane tab strip; content is vertically centered on cy.
+    let cy = sidebar.y + 20.5;
+    layer.quads.push(solid_quad(
+        sidebar.x,
+        sidebar.y + 37.0,
+        sidebar.w - 1.0,
+        1.0,
+        tokens.border_subtle,
+    ));
     // The title starts right of the macOS traffic lights (x 8..70 in the transparent titlebar).
     let title_x = sidebar.x + TRAFFIC_LIGHTS_W;
     draw_text_mono(
@@ -60,22 +69,13 @@ pub fn draw_sidebar<B: FontBackend>(
         &fonts.geo,
         "Workspaces",
         title_x,
-        header.y + 7.0,
-        (header.right() - 32.0 - title_x).max(0.0),
+        cy - fonts.geo.cell_h * 0.5,
+        (sidebar.right() - 36.0 - title_x).max(0.0),
         tokens.text_secondary,
         layer,
     );
-    draw_text_mono(
-        glyphs,
-        fonts.font,
-        &fonts.geo,
-        "+",
-        sidebar.right() - 26.0,
-        header.y + 7.0,
-        16.0,
-        tokens.icon_default,
-        layer,
-    );
+    // "+" button hit box is [right - 30, right - 6] (see input.rs / frame.rs drag regions).
+    icons::plus(layer, sidebar.right() - 18.0, cy, 11.0, tokens.icon_default);
     let mut hits = Vec::with_capacity(workspaces.len());
     let mut y = sidebar.y + 42.0;
     for ws in workspaces {
@@ -101,12 +101,15 @@ pub fn draw_sidebar<B: FontBackend>(
                 0.0,
                 Rgba::TRANSPARENT,
             ));
-            layer.quads.push(solid_quad(
+            layer.quads.push(rounded_quad(
                 rect.x + 4.0,
-                rect.y + 8.0,
-                2.0,
-                rect.h - 16.0,
+                rect.y + 9.0,
+                3.0,
+                rect.h - 18.0,
                 tokens.accent_tide,
+                1.5,
+                0.0,
+                Rgba::TRANSPARENT,
             ));
         }
         if unread > 0 {
@@ -135,9 +138,9 @@ pub fn draw_sidebar<B: FontBackend>(
             fonts.font,
             &fonts.geo,
             name,
-            rect.x + 13.0,
+            rect.x + 17.0,
             ty,
-            rect.w - 50.0,
+            rect.w - 56.0,
             tokens.text_primary,
             layer,
         );
@@ -161,9 +164,9 @@ pub fn draw_sidebar<B: FontBackend>(
                 fonts.font,
                 &fonts.geo,
                 s,
-                rect.x + 13.0,
+                rect.x + 17.0,
                 ty,
-                rect.w - 22.0,
+                rect.w - 28.0,
                 if unread > 0 {
                     tokens.accent_ember
                 } else {
@@ -184,9 +187,9 @@ pub fn draw_sidebar<B: FontBackend>(
                 fonts.font,
                 &fonts.geo,
                 &label,
-                rect.x + 13.0,
+                rect.x + 17.0,
                 ty,
-                rect.w - 22.0,
+                rect.w - 28.0,
                 tokens.text_secondary,
                 layer,
             );
@@ -198,9 +201,9 @@ pub fn draw_sidebar<B: FontBackend>(
                 fonts.font,
                 &fonts.geo,
                 path,
-                rect.x + 13.0,
+                rect.x + 17.0,
                 ty,
-                rect.w - 22.0,
+                rect.w - 28.0,
                 tokens.text_tertiary,
                 layer,
             );
@@ -224,9 +227,9 @@ pub fn draw_sidebar<B: FontBackend>(
                 fonts.font,
                 &fonts.geo,
                 &p,
-                rect.x + 13.0,
+                rect.x + 17.0,
                 ty,
-                rect.w - 22.0,
+                rect.w - 28.0,
                 tokens.text_secondary,
                 layer,
             );
