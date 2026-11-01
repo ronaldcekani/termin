@@ -6,9 +6,7 @@ use crate::SystemNotification;
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSApplication, NSRequestUserAttentionType};
-use objc2_foundation::{
-    MainThreadMarker, NSBundle, NSDictionary, NSNumber, NSString,
-};
+use objc2_foundation::{MainThreadMarker, NSBundle, NSDictionary, NSNumber, NSString};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNMutableNotificationContent, UNNotificationRequest,
     UNNotificationSound, UNUserNotificationCenter,
@@ -24,9 +22,11 @@ fn ensure_authorized(center: &UNUserNotificationCenter) {
             | UNAuthorizationOptions::UNAuthorizationOptionSound
             | UNAuthorizationOptions::UNAuthorizationOptionBadge;
 
-        let block = RcBlock::new(|_granted: objc2::runtime::Bool, _error: *mut objc2_foundation::NSError| {
-            // Lazy authorization result handled silently
-        });
+        let block = RcBlock::new(
+            |_granted: objc2::runtime::Bool, _error: *mut objc2_foundation::NSError| {
+                // Lazy authorization result handled silently
+            },
+        );
 
         // SAFETY: Calling requestAuthorizationWithOptions with valid block.
         unsafe {
@@ -39,11 +39,7 @@ fn ensure_authorized(center: &UNUserNotificationCenter) {
 pub fn notify(n: &SystemNotification) {
     // Check if running as an app bundle
     // SAFETY: Checking bundle identifier on the main thread.
-    let is_bundled = unsafe {
-        NSBundle::mainBundle()
-            .bundleIdentifier()
-            .is_some()
-    };
+    let is_bundled = unsafe { NSBundle::mainBundle().bundleIdentifier().is_some() };
 
     if !is_bundled {
         log::info!("Notification [unbundled]: {} — {}", n.title, n.body);
@@ -97,10 +93,7 @@ pub fn notify(n: &SystemNotification) {
             None,
         );
 
-        center.addNotificationRequest_withCompletionHandler(
-            &request,
-            None,
-        );
+        center.addNotificationRequest_withCompletionHandler(&request, None);
     }
 }
 

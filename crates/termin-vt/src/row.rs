@@ -154,7 +154,9 @@ impl RowPool {
             self.pool.clear();
         }
 
-        Row::new(cols)
+        let mut row = Row::new(cols);
+        row.reset(style);
+        row
     }
 
     /// Recycle an old row's cell buffer into the pool.

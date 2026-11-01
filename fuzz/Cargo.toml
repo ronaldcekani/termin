@@ -1,0 +1,33 @@
+[package]
+name = "termin-fuzz"
+version = "0.1.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+termin-core = { path = "../crates/termin-core" }
+termin-vt = { path = "../crates/termin-vt" }
+termin-editor = { path = "../crates/termin-editor" }
+termin-config = { path = "../crates/termin-config" }
+
+[[bin]]
+name = "fuzz_advance"
+path = "fuzz_targets/fuzz_advance.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_tokenize"
+path = "fuzz_targets/fuzz_tokenize.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_config_parse"
+path = "fuzz_targets/fuzz_config_parse.rs"
+test = false
+doc = false

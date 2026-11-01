@@ -155,6 +155,11 @@ pub trait FontBackend {
     fn resolve(&mut self, spec: &FontSpec) -> FontId;
     fn metrics(&self, f: FontId) -> FontMetrics;
     fn glyph(&mut self, f: FontId, c: char) -> GlyphRef;
+    /// Resolve a glyph in the bold and/or italic face of `f`. Backends without
+    /// styled faces fall back to the regular face.
+    fn glyph_styled(&mut self, f: FontId, c: char, _bold: bool, _italic: bool) -> GlyphRef {
+        self.glyph(f, c)
+    }
     fn shape(&mut self, f: FontId, text: &str, ligatures: bool, out: &mut Vec<ShapedGlyph>);
     fn rasterize(&mut self, g: GlyphRef, scale: f32, out: &mut RasterBuf) -> RasterInfo;
 }

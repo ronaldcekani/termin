@@ -6,9 +6,9 @@
 //!
 //! See `docs/specs/text-and-rendering.md §4`.
 
+use rustc_hash::FxHashMap;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
-use rustc_hash::FxHashMap;
 
 use crate::{FontBackend, FontId, GlyphRef};
 
@@ -205,8 +205,20 @@ mod tests {
         fn glyph(&mut self, _f: FontId, c: char) -> GlyphRef {
             GlyphRef(c as u32)
         }
-        fn shape(&mut self, _f: FontId, _text: &str, _lig: bool, _out: &mut Vec<crate::ShapedGlyph>) {}
-        fn rasterize(&mut self, _g: GlyphRef, _scale: f32, _out: &mut crate::RasterBuf) -> crate::RasterInfo {
+        fn shape(
+            &mut self,
+            _f: FontId,
+            _text: &str,
+            _lig: bool,
+            _out: &mut Vec<crate::ShapedGlyph>,
+        ) {
+        }
+        fn rasterize(
+            &mut self,
+            _g: GlyphRef,
+            _scale: f32,
+            _out: &mut crate::RasterBuf,
+        ) -> crate::RasterInfo {
             crate::RasterInfo::Mask {
                 width: 10,
                 height: 20,
@@ -231,7 +243,13 @@ mod tests {
         let mut backend = MockBackend;
         let mut cache = TextLayoutCache::default();
         // 5 chars = 50px, max_w = 35px -> should fit 2 chars + '…' = 30px
-        let layout = cache.layout(&mut backend, FontId(0), "hello", Some(35.0), TruncateMode::End);
+        let layout = cache.layout(
+            &mut backend,
+            FontId(0),
+            "hello",
+            Some(35.0),
+            TruncateMode::End,
+        );
         assert!(layout.is_truncated);
         assert_eq!(layout.glyphs.len(), 3);
         assert_eq!(layout.width, 30.0);
@@ -244,12 +262,21 @@ mod tests {
         let mut cache = TextLayoutCache::default();
         let path = "~/Projects/termin/src/main.rs";
         // Max width 120px (12 chars = 11 chars + '…')
-        let layout = cache.layout(&mut backend, FontId(0), path, Some(120.0), TruncateMode::Middle);
+        let layout = cache.layout(
+            &mut backend,
+            FontId(0),
+            path,
+            Some(120.0),
+            TruncateMode::Middle,
+        );
         assert!(layout.is_truncated);
         assert_eq!(layout.glyphs.len(), 12);
         assert_eq!(layout.width, 120.0);
         // Middle character must be '…'
-        let has_ellipsis = layout.glyphs.iter().any(|g| g.glyph == GlyphRef('…' as u32));
+        let has_ellipsis = layout
+            .glyphs
+            .iter()
+            .any(|g| g.glyph == GlyphRef('…' as u32));
         assert!(has_ellipsis);
     }
 

@@ -27,7 +27,10 @@ fn test_reflow_narrow_to_wide_and_back() {
         start: AbsLine(0),
         end: AbsLine(2),
     });
-    assert_eq!(text_before.trim(), "12345678901234567890abcdefghijklmnopqrst");
+    assert_eq!(
+        text_before.trim(),
+        "12345678901234567890abcdefghijklmnopqrst"
+    );
 
     // Resize to width 40: should unwrap into a single row
     term.resize(40, 5, (8, 16));
@@ -60,7 +63,10 @@ fn test_reflow_preserves_block_positions() {
 
     // Start block 1
     term.advance(b"\x1b]133;A\x1b\\", &mut sink);
-    term.advance(b"\x1b]133;B\x1b\\echo 123456789012345678901234567890\r\n", &mut sink);
+    term.advance(
+        b"\x1b]133;B\x1b\\echo 123456789012345678901234567890\r\n",
+        &mut sink,
+    );
     term.advance(b"\x1b]133;C\x1b\\Output data\r\n", &mut sink);
     term.advance(b"\x1b]133;D;0\x1b\\", &mut sink);
 

@@ -443,7 +443,9 @@ fn is_env_assignment(s: &str) -> bool {
         let var_part = &s[..eq_pos];
         let bytes = var_part.as_bytes();
         if bytes[0].is_ascii_alphabetic() || bytes[0] == b'_' {
-            return bytes.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_');
+            return bytes
+                .iter()
+                .all(|&b| b.is_ascii_alphanumeric() || b == b'_');
         }
     }
     false
@@ -518,10 +520,7 @@ pub fn active_command_segment(tokens: &[Token], cursor: usize) -> (CmdIdx, Vec<&
     let ctx = tokens
         .iter()
         .find(|t| t.range.contains(&cursor) || t.range.end == cursor)
-        .map_or(
-            tokens.last().map_or(CmdIdx(0), |t| t.ctx),
-            |t| t.ctx,
-        );
+        .map_or(tokens.last().map_or(CmdIdx(0), |t| t.ctx), |t| t.ctx);
 
     let segment_tokens: Vec<&Token> = tokens.iter().filter(|t| t.ctx == ctx).collect();
     (ctx, segment_tokens)
@@ -548,9 +547,13 @@ mod tests {
     #[test]
     fn test_tokenize_pipeline_and_operators() {
         let tokens = tokenize("cat foo.txt | grep -i bar && echo done");
-        let op_pipe = tokens.iter().find(|t| t.kind == TokenKind::Operator && t.range == (12..13));
+        let op_pipe = tokens
+            .iter()
+            .find(|t| t.kind == TokenKind::Operator && t.range == (12..13));
         assert!(op_pipe.is_some());
-        let op_and = tokens.iter().find(|t| t.kind == TokenKind::Operator && t.range == (26..28));
+        let op_and = tokens
+            .iter()
+            .find(|t| t.kind == TokenKind::Operator && t.range == (26..28));
         assert!(op_and.is_some());
 
         // Check command context increments
@@ -558,10 +561,22 @@ mod tests {
         assert_eq!(cat_tok.kind, TokenKind::Command);
         assert_eq!(cat_tok.ctx, CmdIdx(0));
 
-        let grep_tok = tokens.iter().find(|t| t.kind == TokenKind::Command && t.as_str("cat foo.txt | grep -i bar && echo done") == "grep").unwrap();
+        let grep_tok = tokens
+            .iter()
+            .find(|t| {
+                t.kind == TokenKind::Command
+                    && t.as_str("cat foo.txt | grep -i bar && echo done") == "grep"
+            })
+            .unwrap();
         assert_eq!(grep_tok.ctx, CmdIdx(1));
 
-        let echo_tok = tokens.iter().find(|t| t.kind == TokenKind::Command && t.as_str("cat foo.txt | grep -i bar && echo done") == "echo").unwrap();
+        let echo_tok = tokens
+            .iter()
+            .find(|t| {
+                t.kind == TokenKind::Command
+                    && t.as_str("cat foo.txt | grep -i bar && echo done") == "echo"
+            })
+            .unwrap();
         assert_eq!(echo_tok.ctx, CmdIdx(2));
     }
 
@@ -569,7 +584,10 @@ mod tests {
     fn test_tokenize_quotes_and_errors() {
         let input = "echo 'hello world' \"foo bar\"";
         let tokens = tokenize(input);
-        let strings: Vec<&Token> = tokens.iter().filter(|t| t.kind == TokenKind::String).collect();
+        let strings: Vec<&Token> = tokens
+            .iter()
+            .filter(|t| t.kind == TokenKind::String)
+            .collect();
         assert_eq!(strings.len(), 2);
         assert_eq!(strings[0].as_str(input), "'hello world'");
         assert_eq!(strings[1].as_str(input), "\"foo bar\"");
@@ -584,7 +602,10 @@ mod tests {
         let input = "FOO=bar sudo git commit -m 'initial'";
         let tokens = tokenize(input);
         assert_eq!(tokens[0].kind, TokenKind::Variable); // FOO=bar
-        let cmd_tokens: Vec<&Token> = tokens.iter().filter(|t| t.kind == TokenKind::Command).collect();
+        let cmd_tokens: Vec<&Token> = tokens
+            .iter()
+            .filter(|t| t.kind == TokenKind::Command)
+            .collect();
         assert_eq!(cmd_tokens.len(), 2);
         assert_eq!(cmd_tokens[0].as_str(input), "sudo");
         assert_eq!(cmd_tokens[1].as_str(input), "git");
@@ -594,9 +615,15 @@ mod tests {
     fn test_tokenize_subshell_and_variable() {
         let input = "echo $(date +%s) $USER ${HOME}";
         let tokens = tokenize(input);
-        let sub = tokens.iter().find(|t| t.kind == TokenKind::Subshell).unwrap();
+        let sub = tokens
+            .iter()
+            .find(|t| t.kind == TokenKind::Subshell)
+            .unwrap();
         assert_eq!(sub.as_str(input), "$(date +%s)");
-        let vars: Vec<&Token> = tokens.iter().filter(|t| t.kind == TokenKind::Variable).collect();
+        let vars: Vec<&Token> = tokens
+            .iter()
+            .filter(|t| t.kind == TokenKind::Variable)
+            .collect();
         assert_eq!(vars.len(), 2);
         assert_eq!(vars[0].as_str(input), "$USER");
         assert_eq!(vars[1].as_str(input), "${HOME}");

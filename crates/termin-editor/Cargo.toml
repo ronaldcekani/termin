@@ -22,3 +22,7 @@ log.workspace = true
 [build-dependencies]
 serde.workspace = true
 toml.workspace = true
+
+[[bench]]
+name = "editor_bench"
+harness = false

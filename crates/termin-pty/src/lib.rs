@@ -77,6 +77,7 @@ pub enum ReactorEvent {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
@@ -222,6 +223,128 @@ mod tests {
     }
 
     #[test]
+    fn unregister_exited_session_clears_partial_writes_and_is_idempotent() {
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, _, _) = RecordingConsumer::new();
+        let spec = SpawnSpec {
+            prog: PathBuf::from("/bin/sh"),
+            args: vec!["-c".to_string(), "sleep 0.2".to_string()],
+            env: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            cols: 80,
+            rows: 24,
+            cell_px: (0, 0),
+        };
+        let session = handle.spawn(spec, consumer).unwrap();
+
+        let start = Instant::now();
+        let mut exited = false;
+        while start.elapsed() < Duration::from_secs(5) {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            exited |= events.iter().any(
+                |event| matches!(event, ReactorEvent::SessionExited(id, _) if *id == session.id),
+            );
+            if exited {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(exited, "child should have exited and been reaped");
+        assert!(matches!(session.state(), SessionState::Exited(_)));
+        session.write(&vec![b'x'; 4 * 1024 * 1024]);
+        assert!(
+            !session.write_queue.lock().unwrap().is_empty(),
+            "test should leave a partial write queued"
+        );
+
+        handle.unregister_session(session.id).unwrap();
+        assert!(session.write_queue.lock().unwrap().is_empty());
+        handle.unregister_session(session.id).unwrap();
+        drop(session);
+        handle.shutdown();
+    }
+
+    #[test]
+    fn hup_escalation_targets_resistant_foreground_job_group() {
+        let wake = WakeHandle::new(|| {});
+        let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
+        let (consumer, _, _) = RecordingConsumer::new();
+        let spec = SpawnSpec {
+            prog: PathBuf::from("/bin/sh"),
+            args: vec!["-i".to_string()],
+            env: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            cols: 80,
+            rows: 24,
+            cell_px: (0, 0),
+        };
+        let session = handle.spawn(spec, consumer).unwrap();
+        session.write(b"trap '' HUP\nsleep 30\n");
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let foreground = loop {
+            if let Some(pid) = session.foreground_pid() {
+                if pid != session.pid() {
+                    break pid;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "shell did not start a separate foreground job group"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+
+        let sent_at = Instant::now();
+        session.kill(Signal(1));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut shell_regained_foreground = false;
+        while Instant::now() < deadline {
+            if session.foreground_pid() == Some(session.pid()) {
+                shell_regained_foreground = true;
+                break;
+            }
+            if matches!(session.state(), SessionState::Exited(_)) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        if !shell_regained_foreground {
+            if let Some(group) = rustix::process::Pid::from_raw(foreground.0) {
+                let _ = rustix::process::kill_process_group(group, rustix::process::Signal::Kill);
+            }
+        }
+        assert!(
+            shell_regained_foreground,
+            "escalation must kill the HUP-resistant foreground group, not the shell"
+        );
+        assert!(sent_at.elapsed() >= Duration::from_millis(1800));
+        assert!(matches!(session.state(), SessionState::Running));
+
+        session.write(b"exit\n");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            let mut events = Vec::new();
+            handle.drain_events(&mut events);
+            if events.iter().any(
+                |event| matches!(event, ReactorEvent::SessionExited(id, _) if *id == session.id),
+            ) {
+                handle.unregister_session(session.id).unwrap();
+                drop(session);
+                handle.shutdown();
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        session.kill(Signal(9));
+        handle.shutdown();
+        panic!("shell did not exit after the foreground job was killed");
+    }
+
+    #[test]
     fn test_stty_size_resize() {
         let wake = WakeHandle::new(|| {});
         let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
@@ -229,10 +352,7 @@ mod tests {
 
         let spec = SpawnSpec {
             prog: PathBuf::from("/bin/sh"),
-            args: vec![
-                "-c".to_string(),
-                "stty size".to_string(),
-            ],
+            args: vec!["-c".to_string(), "stty size".to_string()],
             env: Vec::new(),
             cwd: PathBuf::from("/tmp"),
             cols: 123,
@@ -300,7 +420,8 @@ mod tests {
         let wake = WakeHandle::new(|| {});
         let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
 
-        let tmp_file = std::env::temp_dir().join(format!("termin_watch_test_{}.tmp", std::process::id()));
+        let tmp_file =
+            std::env::temp_dir().join(format!("termin_watch_test_{}.tmp", std::process::id()));
         std::fs::write(&tmp_file, b"initial").unwrap();
 
         let token = WatchToken(101);
@@ -344,10 +465,28 @@ mod tests {
         let wake = WakeHandle::new(|| {});
         let handle = Reactor::<RecordingConsumer>::start(wake).unwrap();
 
-        let sock_path = std::env::temp_dir().join(format!("termin_ipc_{}.sock", std::process::id()));
+        let sock_dir = std::env::temp_dir().join(format!("termin_ipc_{}", std::process::id()));
+        std::fs::create_dir_all(&sock_dir).unwrap();
+        std::fs::set_permissions(&sock_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let sock_path = sock_dir.join("termin.sock");
         let _ = std::fs::remove_file(&sock_path);
 
-        handle.listen_unix(&sock_path).unwrap();
+        match handle.listen_unix(&sock_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
+                // macOS peer credential verification needs an API outside the allowlist.
+                handle.shutdown();
+                let _ = std::fs::remove_dir_all(&sock_dir);
+                return;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                // AF_UNIX listener creation is denied in some restricted test sandboxes.
+                handle.shutdown();
+                let _ = std::fs::remove_dir_all(&sock_dir);
+                return;
+            }
+            Err(error) => panic!("could not start IPC listener: {error}"),
+        }
 
         // Wait until listener socket is bound and ready
         let mut connected = None;
@@ -363,6 +502,8 @@ mod tests {
                         // In sandbox environment without AF_UNIX connect permission
                         println!("Note: AF_UNIX connect blocked by sandbox policy");
                         let _ = std::fs::remove_file(&sock_path);
+                        let _ = std::fs::remove_file(sock_dir.join(".termin.sock.termin-ipc.lock"));
+                        let _ = std::fs::remove_dir_all(&sock_dir);
                         handle.shutdown();
                         return;
                     }
@@ -394,6 +535,8 @@ mod tests {
         }
 
         let _ = std::fs::remove_file(&sock_path);
+        let _ = std::fs::remove_file(sock_dir.join(".termin.sock.termin-ipc.lock"));
+        let _ = std::fs::remove_dir_all(&sock_dir);
         handle.shutdown();
     }
 
@@ -463,12 +606,21 @@ mod tests {
                         println!("Shell output captured:\n{}", text);
 
                         // Assert presence of integration markers
-                        assert!(text.contains("6973;termin;shell=bash"), "Missing OSC 6973 metadata");
+                        assert!(
+                            text.contains("6973;termin;shell=bash"),
+                            "Missing OSC 6973 metadata"
+                        );
                         assert!(text.contains("133;A"), "Missing OSC 133;A prompt start");
                         assert!(text.contains("133;B"), "Missing OSC 133;B prompt end");
                         assert!(text.contains("133;C"), "Missing OSC 133;C preexec mark");
-                        assert!(text.contains("133;D;0"), "Missing OSC 133;D;0 success exit mark");
-                        assert!(text.contains("133;D;1"), "Missing OSC 133;D;1 error exit mark");
+                        assert!(
+                            text.contains("133;D;0"),
+                            "Missing OSC 133;D;0 success exit mark"
+                        );
+                        assert!(
+                            text.contains("133;D;1"),
+                            "Missing OSC 133;D;1 error exit mark"
+                        );
                         assert!(text.contains("7;file://"), "Missing OSC 7 cwd mark");
 
                         handle.shutdown();
@@ -537,12 +689,21 @@ mod tests {
                         let text = String::from_utf8_lossy(&cap);
                         println!("Zsh output captured:\n{}", text);
 
-                        assert!(text.contains("6973;termin;shell=zsh"), "Missing OSC 6973 metadata");
+                        assert!(
+                            text.contains("6973;termin;shell=zsh"),
+                            "Missing OSC 6973 metadata"
+                        );
                         assert!(text.contains("133;A"), "Missing OSC 133;A prompt start");
                         assert!(text.contains("133;B"), "Missing OSC 133;B prompt end");
                         assert!(text.contains("133;C"), "Missing OSC 133;C preexec mark");
-                        assert!(text.contains("133;D;0"), "Missing OSC 133;D;0 success exit mark");
-                        assert!(text.contains("133;D;1"), "Missing OSC 133;D;1 error exit mark");
+                        assert!(
+                            text.contains("133;D;0"),
+                            "Missing OSC 133;D;0 success exit mark"
+                        );
+                        assert!(
+                            text.contains("133;D;1"),
+                            "Missing OSC 133;D;1 error exit mark"
+                        );
                         assert!(text.contains("7;file://"), "Missing OSC 7 cwd mark");
 
                         handle.shutdown();
@@ -560,7 +721,8 @@ mod tests {
 
     #[test]
     fn test_user_zshrc_custom_zdotdir_loaded() {
-        let tmp = std::env::temp_dir().join(format!("termin_custom_zdotdir_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("termin_custom_zdotdir_{}", std::process::id()));
         let deployed = termin_shell::deploy_shell_scripts(Some(&tmp)).unwrap();
 
         // Create user custom ZDOTDIR fixture with custom .zshrc
@@ -584,7 +746,10 @@ mod tests {
                 tab: termin_core::TabId(1),
             },
             Path::new("/tmp/test.sock"),
-            &[("ZDOTDIR".to_string(), user_zdotdir.to_string_lossy().to_string())],
+            &[(
+                "ZDOTDIR".to_string(),
+                user_zdotdir.to_string_lossy().to_string(),
+            )],
             true,
         );
 
@@ -630,7 +795,10 @@ mod tests {
                             text.contains("VAL=termin_custom_loaded_ok"),
                             "User's custom .zshrc from ZDOTDIR was not loaded"
                         );
-                        assert!(text.contains("6973;termin;shell=zsh"), "Missing integration metadata");
+                        assert!(
+                            text.contains("6973;termin;shell=zsh"),
+                            "Missing integration metadata"
+                        );
 
                         handle.shutdown();
                         let _ = std::fs::remove_dir_all(&tmp);
@@ -653,10 +821,7 @@ mod tests {
 
         let spec = SpawnSpec {
             prog: PathBuf::from("/bin/sh"),
-            args: vec![
-                "-c".to_string(),
-                "head -c 5000000 /dev/zero".to_string(),
-            ],
+            args: vec!["-c".to_string(), "head -c 5000000 /dev/zero".to_string()],
             env: Vec::new(),
             cwd: PathBuf::from("/tmp"),
             cols: 80,
@@ -693,10 +858,7 @@ mod tests {
 
         let spec = SpawnSpec {
             prog: PathBuf::from("/bin/sh"),
-            args: vec![
-                "-c".to_string(),
-                "head -c 500000000 /dev/zero".to_string(),
-            ],
+            args: vec!["-c".to_string(), "head -c 500000000 /dev/zero".to_string()],
             env: Vec::new(),
             cwd: PathBuf::from("/tmp"),
             cols: 80,

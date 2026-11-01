@@ -243,7 +243,9 @@ impl EditorState {
             return false;
         }
 
-        let is_boundary = text.chars().any(|c| c.is_whitespace() || !c.is_alphanumeric());
+        let is_boundary = text
+            .chars()
+            .any(|c| c.is_whitespace() || !c.is_alphanumeric());
         self.undo.record_edit(&self.text, self.cursor, is_boundary);
 
         if let Some(r) = self.selection_range() {

@@ -10,6 +10,11 @@ use termin_core::{
     WorkspaceId,
 };
 
+pub mod accessibility;
+pub use accessibility::{
+    AccessibilityAnnouncement, AccessibilityNode, AccessibilityRole, AccessibilityTreeSnapshot,
+};
+
 #[cfg(target_os = "macos")]
 pub mod macos;
 
@@ -249,6 +254,30 @@ impl PlatformCx {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (w, text);
+        }
+    }
+
+    /// Set accessibility tree snapshot for VoiceOver element navigation.
+    pub fn set_accessibility_tree(&mut self, w: WindowId, tree: AccessibilityTreeSnapshot) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_set_accessibility_tree(w, tree);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (w, tree);
+        }
+    }
+
+    /// Dispatch a spoken VoiceOver announcement.
+    pub fn announce(&mut self, w: WindowId, message: &str) {
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::app::cx_announce(w, message);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (w, message);
         }
     }
 

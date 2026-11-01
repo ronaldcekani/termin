@@ -17,3 +17,7 @@ memchr.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
 log.workspace = true
+
+[[bench]]
+name = "vt_bench"
+harness = false

@@ -174,12 +174,13 @@ impl AtlasTexture {
 
         // SAFETY: The provided bytes slice contains at least bytes_per_row * h bytes.
         unsafe {
-            self.texture.replaceRegion_mipmapLevel_withBytes_bytesPerRow(
-                region,
-                0,
-                NonNull::new(bytes.as_ptr() as *mut _).unwrap(),
-                bytes_per_row,
-            );
+            self.texture
+                .replaceRegion_mipmapLevel_withBytes_bytesPerRow(
+                    region,
+                    0,
+                    NonNull::new(bytes.as_ptr() as *mut _).unwrap(),
+                    bytes_per_row,
+                );
         }
 
         Ok(())

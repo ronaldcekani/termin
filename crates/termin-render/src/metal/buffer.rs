@@ -49,12 +49,7 @@ pub fn srgb_to_linear_lut() -> [f32; 256] {
 pub fn create_unit_quad_buffer(
     device: &ProtocolObject<dyn MTLDevice>,
 ) -> Result<Retained<ProtocolObject<dyn MTLBuffer>>, RenderError> {
-    const VERTICES: [[f32; 2]; 4] = [
-        [0.0, 0.0],
-        [1.0, 0.0],
-        [0.0, 1.0],
-        [1.0, 1.0],
-    ];
+    const VERTICES: [[f32; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
     let len = std::mem::size_of_val(&VERTICES);
     // SAFETY: Creating buffer with valid non-null pointer to static vertex data and storageModeShared.
     let buffer = unsafe {

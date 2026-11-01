@@ -12,7 +12,7 @@ env:
 
 jobs:
   check:
-    name: Format, Clippy, Test, Doc, Size
+    name: Format, Clippy, Test, Doc, Size, Perf & Memory Gates
     runs-on: macos-14
     steps:
       - name: Checkout repository
@@ -31,8 +31,20 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace
 
+      - name: Verify zero steady-state frame allocations (release)
+        run: cargo test --release -p termin-render --test alloc_count
+
       - name: Check documentation
         run: cargo doc --workspace --no-deps
 
       - name: Check binary size vs budgets
         run: cargo xtask size
+
+      - name: Generate benchmark corpora
+        run: cargo xtask corpus --quiet
+
+      - name: Run quick throughput & latency benchmarks (release)
+        run: cargo run --release -p xtask -- bench --quick
+
+      - name: Run quick memory footprint budget check (release)
+        run: cargo run --release -p xtask -- mem --quick

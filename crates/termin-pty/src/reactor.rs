@@ -4,6 +4,8 @@
 
 use std::io;
 use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd, RawFd};
+#[cfg(not(target_os = "macos"))]
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,6 +28,179 @@ use crate::{
     IpcConnId, Pid, PtyConsumer, ReactorEvent, Session, SessionState, SpawnSpec, WatchToken,
 };
 
+#[cfg(not(target_os = "macos"))]
+#[derive(Debug)]
+struct BoundIpcListener {
+    listener: UnixListener,
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+    startup_lock: std::fs::File,
+}
+
+#[cfg(not(target_os = "macos"))]
+impl BoundIpcListener {
+    fn cleanup(self) {
+        let Self {
+            listener,
+            path,
+            device,
+            inode,
+            startup_lock,
+        } = self;
+        drop(listener);
+        if let Ok(meta) = std::fs::symlink_metadata(&path) {
+            if meta.file_type().is_socket() && meta.dev() == device && meta.ino() == inode {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        drop(startup_lock);
+    }
+}
+
+/// Bind under a per-directory startup lock, preserving non-socket collisions.
+#[cfg(not(target_os = "macos"))]
+fn bind_ipc_listener(path: &Path) -> io::Result<BoundIpcListener> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    if !parent.exists() {
+        std::fs::create_dir_all(parent)?;
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let parent_meta = std::fs::symlink_metadata(parent)?;
+    let parent_mode = parent_meta.permissions().mode();
+    if !parent_meta.file_type().is_dir()
+        || parent_meta.uid() != rustix::process::geteuid().as_raw() as u32
+        || parent_mode & 0o077 != 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "IPC socket parent must be an owned, private directory",
+        ));
+    }
+
+    // All Termin instances serialize startup decisions for this socket path. The
+    // lock lives beside the socket, inside the already validated private directory.
+    let mut lock_name = std::ffi::OsString::from(".");
+    lock_name.push(
+        path.file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("termin.sock")),
+    );
+    lock_name.push(".termin-ipc.lock");
+    let lock_path = parent.join(lock_name);
+    let lock_fd = open(
+        &lock_path,
+        OFlags::RDWR | OFlags::CREATE | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        Mode::from_bits_truncate(0o600),
+    )?;
+    let lock_file = std::fs::File::from(lock_fd);
+    let lock_meta = lock_file.metadata()?;
+    if !lock_meta.file_type().is_file()
+        || lock_meta.uid() != rustix::process::geteuid().as_raw() as u32
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "IPC startup lock is not an owned regular file",
+        ));
+    }
+    rustix::fs::fchmod(&lock_file, Mode::from_bits_truncate(0o600))
+        .map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))?;
+    if let Err(error) = rustix::fs::flock(
+        &lock_file,
+        rustix::fs::FlockOperation::NonBlockingLockExclusive,
+    ) {
+        if error == rustix::io::Errno::AGAIN {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                "IPC socket is owned by another Termin instance",
+            ));
+        }
+        return Err(io::Error::from_raw_os_error(error.raw_os_error()));
+    }
+
+    match UnixListener::bind(path) {
+        Ok(listener) => {
+            if let Err(error) =
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            {
+                drop(listener);
+                return Err(error);
+            }
+            let metadata = std::fs::symlink_metadata(path)?;
+            if !metadata.file_type().is_socket() {
+                drop(listener);
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "bound IPC path is not a socket",
+                ));
+            }
+            Ok(BoundIpcListener {
+                listener,
+                path: path.to_path_buf(),
+                device: metadata.dev(),
+                inode: metadata.ino(),
+                startup_lock: lock_file,
+            })
+        }
+        Err(bind_error) => {
+            let metadata = match std::fs::symlink_metadata(path) {
+                Ok(metadata) => metadata,
+                Err(_) => return Err(bind_error),
+            };
+            if !metadata.file_type().is_socket() {
+                return Err(bind_error);
+            }
+            match UnixStream::connect(path) {
+                Ok(_) => Err(io::Error::new(
+                    io::ErrorKind::AddrInUse,
+                    "IPC socket is active",
+                )),
+                // The startup lock serializes all Termin bind/register attempts.
+                Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
+                    let current = std::fs::symlink_metadata(path)?;
+                    if !current.file_type().is_socket()
+                        || current.dev() != metadata.dev()
+                        || current.ino() != metadata.ino()
+                    {
+                        return Err(io::Error::new(
+                            io::ErrorKind::AlreadyExists,
+                            "IPC socket changed during stale check",
+                        ));
+                    }
+                    std::fs::remove_file(path)?;
+                    let listener = UnixListener::bind(path)?;
+                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+                    let metadata = std::fs::symlink_metadata(path)?;
+                    Ok(BoundIpcListener {
+                        listener,
+                        path: path.to_path_buf(),
+                        device: metadata.dev(),
+                        inode: metadata.ino(),
+                        startup_lock: lock_file,
+                    })
+                }
+                Err(_) => Err(bind_error),
+            }
+        }
+    }
+}
+
+fn same_uid_peer(stream: &UnixStream) -> io::Result<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        let cred = rustix::net::sockopt::get_socket_peercred(stream)
+            .map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))?;
+        Ok(cred.uid == rustix::process::geteuid())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = stream;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "safe Unix peer credential API is unavailable on this platform",
+        ))
+    }
+}
+
 /// Commands sent to the reactor IO thread.
 pub(crate) enum ReactorCmd {
     RegisterSession(Box<dyn ErasedSessionRegister>),
@@ -34,12 +209,19 @@ pub(crate) enum ReactorCmd {
         path: PathBuf,
         token: WatchToken,
     },
+    #[cfg(not(target_os = "macos"))]
     ListenUnix {
         path: PathBuf,
+        result: Sender<io::Result<()>>,
     },
+    #[allow(dead_code)]
     ScheduleKillEscalation {
         tab_id: TabId,
         pid: Pid,
+    },
+    UnregisterSession {
+        tab_id: TabId,
+        result: Option<Sender<io::Result<()>>>,
     },
     Shutdown,
 }
@@ -161,9 +343,57 @@ impl<C: PtyConsumer> ReactorHandle<C> {
 
     /// Listen on a Unix domain socket for IPC commands.
     pub fn listen_unix(&self, path: &Path) -> io::Result<()> {
+        self.listen_unix_checked(path)
+    }
+
+    /// Start listening and return the actual bind/registration result.
+    pub fn listen_unix_checked(&self, path: &Path) -> io::Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = path;
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "safe same-uid peer credentials are unavailable in the allowlisted rustix API",
+            ))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let (result_tx, result_rx) = channel();
+            self.cmd_tx
+                .send(ReactorCmd::ListenUnix {
+                    path: path.to_path_buf(),
+                    result: result_tx,
+                })
+                .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?;
+            self.trigger_user_event();
+            result_rx
+                .recv()
+                .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?
+        }
+    }
+
+    /// Remove an exited session from the reactor after its `SessionExited` event.
+    /// The call waits for reactor cleanup to finish; the caller should then drop its `Arc<Session>`.
+    pub fn unregister_session(&self, tab_id: TabId) -> io::Result<()> {
+        let (result_tx, result_rx) = channel();
         self.cmd_tx
-            .send(ReactorCmd::ListenUnix {
-                path: path.to_path_buf(),
+            .send(ReactorCmd::UnregisterSession {
+                tab_id,
+                result: Some(result_tx),
+            })
+            .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?;
+        self.trigger_user_event();
+        result_rx
+            .recv()
+            .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?
+    }
+
+    /// Enqueue session cleanup without waiting on the IO thread. Call after `SessionExited`.
+    pub fn request_unregister_session(&self, tab_id: TabId) -> io::Result<()> {
+        self.cmd_tx
+            .send(ReactorCmd::UnregisterSession {
+                tab_id,
+                result: None,
             })
             .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?;
         self.trigger_user_event();
@@ -180,8 +410,11 @@ impl<C: PtyConsumer> ReactorHandle<C> {
     pub fn drain_events(&self, out: &mut Vec<ReactorEvent>) {
         if let Ok(mut lock) = self.events.lock() {
             out.append(&mut *lock);
+            // Reset while holding the queue lock. Otherwise a producer can
+            // enqueue an event after the drain but before the reset, observe
+            // the old pending flag, and leave the new event without a wake.
+            self.wake_pending.store(false, Ordering::SeqCst);
         }
-        self.wake_pending.store(false, Ordering::SeqCst);
     }
 }
 
@@ -192,6 +425,9 @@ trait ActiveSession: Send + Sync {
     fn get_pending_writes(&self, out: &mut Vec<u8>) -> usize;
     fn advance_write_queue(&self, written: usize) -> bool;
     fn mark_exited(&self, code: i32);
+    fn is_exited(&self) -> bool;
+    fn pid(&self) -> i32;
+    fn clear_pending_writes(&self);
 }
 
 impl<C: PtyConsumer> ActiveSession for Session<C> {
@@ -248,6 +484,26 @@ impl<C: PtyConsumer> ActiveSession for Session<C> {
             *st = SessionState::Exited(code);
         }
     }
+
+    fn is_exited(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| matches!(*state, SessionState::Exited(_)))
+            .unwrap_or(false)
+    }
+
+    fn pid(&self) -> i32 {
+        self.pid.0
+    }
+
+    fn clear_pending_writes(&self) {
+        if let Ok(mut queue) = self.write_queue.lock() {
+            queue.clear();
+            if queue.capacity() > DRAINED_WRITE_QUEUE_CAPACITY {
+                queue.shrink_to(DRAINED_WRITE_QUEUE_CAPACITY);
+            }
+        }
+    }
 }
 
 /// Reactor IO loop state running on the `termin-io` thread.
@@ -262,6 +518,8 @@ pub(crate) struct ReactorLoop {
     vnode_debounce: FxHashMap<WatchToken, Instant>,
     kill_escalations: FxHashMap<TabId, (Pid, Instant)>,
     ipc_listeners: FxHashMap<RawFd, UnixListener>,
+    #[cfg(not(target_os = "macos"))]
+    ipc_startup_locks: Vec<std::fs::File>,
     ipc_clients: FxHashMap<RawFd, (IpcConnId, UnixStream)>,
     next_ipc_id: u64,
     events: Arc<Mutex<Vec<ReactorEvent>>>,
@@ -288,6 +546,8 @@ impl ReactorLoop {
             vnode_debounce: FxHashMap::default(),
             kill_escalations: FxHashMap::default(),
             ipc_listeners: FxHashMap::default(),
+            #[cfg(not(target_os = "macos"))]
+            ipc_startup_locks: Vec::new(),
             ipc_clients: FxHashMap::default(),
             next_ipc_id: 1,
             events,
@@ -347,12 +607,7 @@ impl ReactorLoop {
                 );
                 unsafe {
                     // SAFETY: Arming write event on master fd
-                    let _ = kevent(
-                        &self.kq,
-                        &[write_ev],
-                        &mut Vec::new(),
-                        Some(Duration::ZERO),
-                    );
+                    let _ = kevent(&self.kq, &[write_ev], &mut Vec::new(), Some(Duration::ZERO));
                 }
                 self.write_armed.insert(tab_id, true);
             }
@@ -371,16 +626,49 @@ impl ReactorLoop {
                 );
                 unsafe {
                     // SAFETY: Disarming write event on master fd
-                    let _ = kevent(
-                        &self.kq,
-                        &[write_ev],
-                        &mut Vec::new(),
-                        Some(Duration::ZERO),
-                    );
+                    let _ = kevent(&self.kq, &[write_ev], &mut Vec::new(), Some(Duration::ZERO));
                 }
                 self.write_armed.insert(tab_id, false);
             }
         }
+    }
+
+    fn unregister_session(&mut self, tab_id: TabId) -> io::Result<()> {
+        let Some(session) = self.sessions.get(&tab_id).cloned() else {
+            return Ok(());
+        };
+        if !session.is_exited() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "session is still running",
+            ));
+        }
+        let fd = session.master_fd();
+        let pid = session.pid();
+        let mut filters = vec![EventFilter::Read(fd), EventFilter::Write(fd)];
+        if let Some(process_id) = rustix::process::Pid::from_raw(pid) {
+            filters.push(EventFilter::Proc {
+                pid: process_id,
+                flags: ProcessEvents::EXIT,
+            });
+        }
+        for filter in filters {
+            let event = Event::new(filter, EventFlags::DELETE, 0);
+            // SAFETY: Removing kqueue filters for this session's still-owned descriptors/PID.
+            if let Err(error) =
+                unsafe { kevent(&self.kq, &[event], &mut Vec::new(), Some(Duration::ZERO)) }
+            {
+                // Read/write filters may already have been deleted at EOF, and the
+                // process filter is automatically removed after NOTE_EXIT.
+                log::debug!("session {} filter cleanup: {error}", tab_id.0);
+            }
+        }
+        self.sessions.remove(&tab_id);
+        self.fd_to_tab.remove(&fd);
+        self.pid_to_tab.remove(&pid);
+        self.write_armed.remove(&tab_id);
+        session.clear_pending_writes();
+        Ok(())
     }
 
     fn push_event(&mut self, ev: ReactorEvent) {
@@ -449,10 +737,8 @@ impl ReactorLoop {
             self.kill_escalations.retain(|tab_id, (pid, deadline)| {
                 if now >= *deadline {
                     if let Some(p) = rustix::process::Pid::from_raw(pid.0) {
-                        let _ = rustix::process::kill_process_group(
-                            p,
-                            rustix::process::Signal::Kill,
-                        );
+                        let _ =
+                            rustix::process::kill_process_group(p, rustix::process::Signal::Kill);
                     }
                     dead_tabs.push(*tab_id);
                     false
@@ -496,11 +782,13 @@ impl ReactorLoop {
                                         Ok(bytes_read) => {
                                             total_bytes += bytes_read;
                                             had_output = true;
-                                            let (_, write_back) = session.consume_bytes(&read_buf[..bytes_read]);
+                                            let (_, write_back) =
+                                                session.consume_bytes(&read_buf[..bytes_read]);
                                             if !write_back.is_empty() {
                                                 // Feed write-back into session write queue
                                                 // SAFETY: fd is an open PTY master descriptor managed by reactor
-                                                let write_fd = unsafe { BorrowedFd::borrow_raw(fd) };
+                                                let write_fd =
+                                                    unsafe { BorrowedFd::borrow_raw(fd) };
                                                 let _ = rustix::io::write(write_fd, &write_back);
                                             }
                                         }
@@ -532,27 +820,52 @@ impl ReactorLoop {
                             }
                         } else if let Some(listener) = self.ipc_listeners.get(&fd) {
                             // Accept new IPC connection
-                            if let Ok((stream, _)) = listener.accept() {
-                                let _ = stream.set_nonblocking(true);
-                                let client_fd = stream.as_raw_fd();
-                                let conn_id = IpcConnId(self.next_ipc_id);
-                                self.next_ipc_id += 1;
+                            match listener.accept() {
+                                Ok((stream, _)) => {
+                                    match same_uid_peer(&stream) {
+                                        Ok(true) => {}
+                                        Ok(false) => continue,
+                                        Err(error) => {
+                                            log::warn!(
+                                                "could not verify IPC peer credentials: {error}"
+                                            );
+                                            continue;
+                                        }
+                                    }
+                                    if let Err(error) = stream.set_nonblocking(true) {
+                                        log::warn!(
+                                            "could not make IPC client nonblocking: {error}"
+                                        );
+                                        continue;
+                                    }
+                                    let client_fd = stream.as_raw_fd();
+                                    let conn_id = IpcConnId(self.next_ipc_id);
+                                    self.next_ipc_id += 1;
 
-                                let ev = Event::new(
-                                    EventFilter::Read(client_fd),
-                                    EventFlags::ADD | EventFlags::ENABLE,
-                                    conn_id.0 as isize,
-                                );
-                                unsafe {
-                                    // SAFETY: Registering new IPC client socket on kqueue
-                                    let _ = kevent(
-                                        &self.kq,
-                                        &[ev],
-                                        &mut Vec::new(),
-                                        Some(Duration::ZERO),
+                                    let ev = Event::new(
+                                        EventFilter::Read(client_fd),
+                                        EventFlags::ADD | EventFlags::ENABLE,
+                                        conn_id.0 as isize,
                                     );
+                                    let registration = unsafe {
+                                        // SAFETY: Registering new IPC client socket on kqueue
+                                        kevent(
+                                            &self.kq,
+                                            &[ev],
+                                            &mut Vec::new(),
+                                            Some(Duration::ZERO),
+                                        )
+                                    };
+                                    if let Err(error) = registration {
+                                        log::warn!(
+                                            "could not register IPC client with kqueue: {error}"
+                                        );
+                                        continue;
+                                    }
+                                    self.ipc_clients.insert(client_fd, (conn_id, stream));
                                 }
-                                self.ipc_clients.insert(client_fd, (conn_id, stream));
+                                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                                Err(error) => log::warn!("IPC accept failed: {error}"),
                             }
                         } else if let Some((conn_id, stream)) = self.ipc_clients.get_mut(&fd) {
                             // Read from IPC client socket
@@ -621,6 +934,7 @@ impl ReactorLoop {
                                     }
                                     session.mark_exited(exit_code);
                                 }
+                                self.pid_to_tab.remove(&pid_raw);
                                 self.push_event(ReactorEvent::SessionExited(tab_id, exit_code));
                             }
                         }
@@ -631,7 +945,8 @@ impl ReactorLoop {
                     EventFilter::Vnode { vnode, flags: _ } => {
                         let fd = vnode.as_raw_fd();
                         if let Some((token, _)) = self.vnodes.get(&fd) {
-                            self.vnode_debounce.insert(*token, Instant::now() + Duration::from_millis(50));
+                            self.vnode_debounce
+                                .insert(*token, Instant::now() + Duration::from_millis(50));
                         }
                     }
                     _ => {}
@@ -648,11 +963,8 @@ impl ReactorLoop {
                         self.arm_write(tab_id);
                     }
                     ReactorCmd::WatchPath { path, token } => {
-                        if let Ok(fd) = open(
-                            &path,
-                            OFlags::RDONLY | OFlags::CLOEXEC,
-                            Mode::empty(),
-                        ) {
+                        if let Ok(fd) = open(&path, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
+                        {
                             let raw_fd = fd.as_raw_fd();
                             let ev = Event::new(
                                 EventFilter::Vnode {
@@ -667,45 +979,61 @@ impl ReactorLoop {
                             );
                             unsafe {
                                 // SAFETY: Registering vnode filter on open path
-                                let _ = kevent(
-                                    &self.kq,
-                                    &[ev],
-                                    &mut Vec::new(),
-                                    Some(Duration::ZERO),
-                                );
+                                let _ =
+                                    kevent(&self.kq, &[ev], &mut Vec::new(), Some(Duration::ZERO));
                             }
                             self.vnodes.insert(raw_fd, (token, path));
                             // Store OwnedFd to keep descriptor alive
                             std::mem::forget(fd);
                         }
                     }
-                    ReactorCmd::ListenUnix { path } => {
-                        let _ = std::fs::remove_file(&path);
-                        if let Ok(listener) = UnixListener::bind(&path) {
-                            let _ = listener.set_nonblocking(true);
-                            let raw_fd = listener.as_raw_fd();
+                    #[cfg(not(target_os = "macos"))]
+                    ReactorCmd::ListenUnix { path, result } => {
+                        let bind_result = bind_ipc_listener(&path).and_then(|binding| {
+                            if let Err(error) = binding.listener.set_nonblocking(true) {
+                                binding.cleanup();
+                                return Err(error);
+                            }
+                            let listener = binding.listener.as_raw_fd();
                             let ev = Event::new(
-                                EventFilter::Read(raw_fd),
+                                EventFilter::Read(listener),
                                 EventFlags::ADD | EventFlags::ENABLE,
                                 0,
                             );
-                            unsafe {
+                            let registration = unsafe {
                                 // SAFETY: Registering IPC listener on kqueue
-                                let _ = kevent(
-                                    &self.kq,
-                                    &[ev],
-                                    &mut Vec::new(),
-                                    Some(Duration::ZERO),
-                                );
+                                kevent(&self.kq, &[ev], &mut Vec::new(), Some(Duration::ZERO))
+                                    .map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))
+                            };
+                            if let Err(error) = registration {
+                                binding.cleanup();
+                                return Err(error);
                             }
-                            self.ipc_listeners.insert(raw_fd, listener);
-                        }
+                            let BoundIpcListener {
+                                listener,
+                                startup_lock,
+                                ..
+                            } = binding;
+                            self.ipc_listeners.insert(listener.as_raw_fd(), listener);
+                            // Keep the lock for the listener lifetime. A competing
+                            // starter can then distinguish our active socket from a stale one
+                            // without relying on a potentially-backlogged connect probe.
+                            self.ipc_startup_locks.push(startup_lock);
+                            Ok(())
+                        });
+                        let _ = result.send(bind_result);
                     }
                     ReactorCmd::ScheduleKillEscalation { tab_id, pid } => {
-                        self.kill_escalations.insert(
-                            tab_id,
-                            (pid, Instant::now() + Duration::from_secs(2)),
-                        );
+                        self.kill_escalations
+                            .insert(tab_id, (pid, Instant::now() + Duration::from_secs(2)));
+                    }
+                    ReactorCmd::UnregisterSession { tab_id, result } => {
+                        let cleanup = self.unregister_session(tab_id);
+                        if let Some(result) = result {
+                            let _ = result.send(cleanup);
+                        } else if let Err(error) = cleanup {
+                            log::warn!("could not unregister session {}: {error}", tab_id.0);
+                        }
                     }
                     ReactorCmd::Shutdown => {
                         return;
@@ -757,8 +1085,7 @@ impl<C: PtyConsumer> Reactor<C> {
             _phantom: std::marker::PhantomData,
         };
 
-        let mut reactor_loop =
-            ReactorLoop::new(kq, cmd_rx, events, wake_pending, wake);
+        let mut reactor_loop = ReactorLoop::new(kq, cmd_rx, events, wake_pending, wake);
 
         std::thread::Builder::new()
             .name("termin-io".to_string())
@@ -767,5 +1094,151 @@ impl<C: PtyConsumer> Reactor<C> {
             })?;
 
         Ok(handle)
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod ipc_listener_tests {
+    use super::*;
+
+    fn path(label: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "termin-{label}-{}-{}.sock",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        (dir.join("termin.sock"), dir)
+    }
+
+    #[test]
+    fn refuses_to_remove_non_socket_collision() {
+        let (socket_path, dir) = path("collision");
+        std::fs::write(&socket_path, b"owned by someone else").unwrap();
+        let error = bind_ipc_listener(&socket_path).unwrap_err();
+        assert!(
+            error.kind() == io::ErrorKind::AddrInUse
+                || error.kind() == io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(
+            std::fs::read(&socket_path).unwrap(),
+            b"owned by someone else"
+        );
+        std::fs::remove_file(socket_path).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn active_socket_is_preserved_and_new_socket_is_private() {
+        let (socket_path, dir) = path("active");
+        let active = match UnixListener::bind(&socket_path) {
+            Ok(listener) => listener,
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                let _ = std::fs::remove_dir_all(dir);
+                return;
+            }
+            Err(error) => panic!("could not create test socket: {error}"),
+        };
+        assert!(bind_ipc_listener(&socket_path).is_err());
+        assert!(UnixStream::connect(&socket_path).is_ok());
+        drop(active);
+        std::fs::remove_file(&socket_path).unwrap();
+
+        let listener = match bind_ipc_listener(&socket_path) {
+            Ok(listener) => listener,
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                let _ = std::fs::remove_dir_all(dir);
+                return;
+            }
+            Err(error) => panic!("could not create test socket: {error}"),
+        };
+        assert_eq!(
+            std::fs::metadata(&socket_path)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        drop(listener);
+        std::fs::remove_file(socket_path).unwrap();
+        std::fs::remove_file(dir.join(".termin.sock.termin-ipc.lock")).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reclaims_stale_socket_and_serializes_concurrent_startup() {
+        let (socket_path, dir) = path("stale");
+        let listener = match UnixListener::bind(&socket_path) {
+            Ok(listener) => listener,
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                let _ = std::fs::remove_dir_all(dir);
+                return;
+            }
+            Err(error) => panic!("could not create test socket: {error}"),
+        };
+        drop(listener);
+        let binding = bind_ipc_listener(&socket_path).unwrap();
+        assert_eq!(
+            std::fs::metadata(&socket_path)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert!(UnixStream::connect(&socket_path).is_ok());
+        drop(binding);
+        let _ = std::fs::remove_file(&socket_path);
+
+        let (socket_path, dir2) = path("concurrent");
+        let socket_path = Arc::new(socket_path);
+        drop(UnixListener::bind(&*socket_path).unwrap());
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let mut workers = Vec::new();
+        for _ in 0..2 {
+            let p = Arc::clone(&socket_path);
+            let b = Arc::clone(&barrier);
+            workers.push(std::thread::spawn(move || {
+                b.wait();
+                bind_ipc_listener(&p)
+            }));
+        }
+        barrier.wait();
+        let outcomes: Vec<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
+        assert_eq!(outcomes.iter().filter(|r| r.is_ok()).count(), 1);
+        assert_eq!(outcomes.iter().filter(|r| r.is_err()).count(), 1);
+        drop(outcomes);
+        let _ = std::fs::remove_file(&*socket_path);
+        std::fs::remove_file(dir.join(".termin.sock.termin-ipc.lock")).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+        std::fs::remove_file(dir2.join(".termin.sock.termin-ipc.lock")).unwrap();
+        std::fs::remove_dir_all(dir2).unwrap();
+    }
+
+    #[test]
+    fn rejects_symlink_or_non_private_parent() {
+        let (_socket_path, dir) = path("parent");
+        let public_dir = std::env::temp_dir().join(format!("termin-public-{}", std::process::id()));
+        std::fs::create_dir_all(&public_dir).unwrap();
+        std::fs::set_permissions(&public_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            bind_ipc_listener(&public_dir.join("termin.sock"))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&public_dir, &link).unwrap();
+        assert_eq!(
+            bind_ipc_listener(&link.join("termin.sock"))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        std::fs::remove_file(link).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+        std::fs::remove_dir_all(public_dir).unwrap();
     }
 }

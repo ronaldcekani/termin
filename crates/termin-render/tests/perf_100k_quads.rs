@@ -25,7 +25,12 @@ fn test_100k_quads_frame_encodes_sub_millisecond() {
 
         for i in 0..quads_per_layer {
             layer.quads.push(QuadInst {
-                rect: [(i % 100) as f32 * 19.0, (layer_idx * 100) as f32, 18.0, 20.0],
+                rect: [
+                    (i % 100) as f32 * 19.0,
+                    (layer_idx * 100) as f32,
+                    18.0,
+                    20.0,
+                ],
                 color: 0x2080E0FF,
                 border_color: 0,
                 radius: 4.0,

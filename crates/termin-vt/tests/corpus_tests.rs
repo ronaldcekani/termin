@@ -3,9 +3,7 @@
 //! Tests realistic terminal streams: vim session, htop, ls --color,
 //! progress bars, CJK / emoji, and Claude Code sessions.
 
-use termin_vt::{
-    CellFlags, Color, Effect, EffectSink, ScrollPos, Terminal, TerminalConfig,
-};
+use termin_vt::{CellFlags, Color, Effect, EffectSink, ScrollPos, Terminal, TerminalConfig};
 
 struct TestSink {
     pub writes: Vec<u8>,
@@ -55,7 +53,9 @@ fn test_corpus_vim_session() {
     }
 
     // Statusline on row 23 (inverted style)
-    stream.extend_from_slice(b"\x1b[23;1H\x1b[7m main.rs [+]              utf-8 [unix]   3,2          All \x1b[0m");
+    stream.extend_from_slice(
+        b"\x1b[23;1H\x1b[7m main.rs [+]              utf-8 [unix]   3,2          All \x1b[0m",
+    );
 
     // Commandline on row 24
     stream.extend_from_slice(b"\x1b[24;1H:w");
@@ -103,14 +103,24 @@ fn test_corpus_htop_session() {
     stream.extend_from_slice(b"\x1b[1;1H");
 
     // Draw CPU bar: [|||||||||||||||||||         52.3%]
-    stream.extend_from_slice(b"1  [\x1b[32m|||||||||||\x1b[33m|||||\x1b[31m|||\x1b[0m          52.3%] Tasks: 124\r\n");
-    stream.extend_from_slice(b"2  [\x1b[32m|||||||\x1b[0m                     24.1%] Load average: 1.85 2.10\r\n");
-    stream.extend_from_slice(b"Mem[\x1b[32m|||||||||||||||\x1b[0m       4.12G/16.0G] Uptime: 5 days, 03:12:44\r\n");
+    stream.extend_from_slice(
+        b"1  [\x1b[32m|||||||||||\x1b[33m|||||\x1b[31m|||\x1b[0m          52.3%] Tasks: 124\r\n",
+    );
+    stream.extend_from_slice(
+        b"2  [\x1b[32m|||||||\x1b[0m                     24.1%] Load average: 1.85 2.10\r\n",
+    );
+    stream.extend_from_slice(
+        b"Mem[\x1b[32m|||||||||||||||\x1b[0m       4.12G/16.0G] Uptime: 5 days, 03:12:44\r\n",
+    );
 
     // Process table header
     stream.extend_from_slice(b"\x1b[5;1H\x1b[7m  PID USER      PRI  NI  VIRT   RES   SHR S CPU% MEM%   TIME+  Command     \x1b[0m\r\n");
-    stream.extend_from_slice(b" 1420 user       20   0 14.2G  1.2G  120M S 45.2  7.5  12:34.56 termin      \r\n");
-    stream.extend_from_slice(b"  892 root       20   0  2.1G  240M   45M S  8.1  1.5   3:12.10 WindowServer\r\n");
+    stream.extend_from_slice(
+        b" 1420 user       20   0 14.2G  1.2G  120M S 45.2  7.5  12:34.56 termin      \r\n",
+    );
+    stream.extend_from_slice(
+        b"  892 root       20   0  2.1G  240M   45M S  8.1  1.5   3:12.10 WindowServer\r\n",
+    );
 
     term.advance(&stream, &mut sink);
 
@@ -144,9 +154,13 @@ fn test_corpus_ls_color() {
 
     // ls -la output with directories in blue, executables in green, symlinks in cyan
     let mut stream = Vec::new();
-    stream.extend_from_slice(b"drwxr-xr-x   5 user staff   160 Oct 31 12:00 \x1b[1;34m.\x1b[0m\r\n");
-    stream.extend_from_slice(b"drwxr-xr-x  10 user staff   320 Oct 31 11:00 \x1b[1;34m..\x1b[0m\r\n");
-    stream.extend_from_slice(b"-rwxr-xr-x   1 user staff 12048 Oct 31 12:01 \x1b[1;32mtermin\x1b[0m\r\n");
+    stream
+        .extend_from_slice(b"drwxr-xr-x   5 user staff   160 Oct 31 12:00 \x1b[1;34m.\x1b[0m\r\n");
+    stream
+        .extend_from_slice(b"drwxr-xr-x  10 user staff   320 Oct 31 11:00 \x1b[1;34m..\x1b[0m\r\n");
+    stream.extend_from_slice(
+        b"-rwxr-xr-x   1 user staff 12048 Oct 31 12:01 \x1b[1;32mtermin\x1b[0m\r\n",
+    );
     stream.extend_from_slice(b"lrwxr-xr-x   1 user staff     6 Oct 31 12:02 \x1b[1;36mbin\x1b[0m -> \x1b[1;34m.\x1b[0m\r\n");
     stream.extend_from_slice(b"-rw-r--r--   1 user staff  2048 Oct 31 12:03 Cargo.toml\r\n");
 
@@ -166,7 +180,10 @@ fn test_corpus_ls_color() {
             }
         }
     }
-    assert!(green_found, "expected bold green executable text for termin");
+    assert!(
+        green_found,
+        "expected bold green executable text for termin"
+    );
 }
 
 #[test]

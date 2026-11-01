@@ -119,6 +119,9 @@ impl<C: PtyConsumer> Session<C> {
 
     /// Send signal to child session process group.
     pub fn kill(&self, sig: Signal) {
+        if !matches!(self.state(), SessionState::Running) {
+            return;
+        }
         let pgrp = self.foreground_pid().unwrap_or(self.pid);
         let pid_val = rustix::process::Pid::from_raw(pgrp.0);
         if let Some(p) = pid_val {
@@ -134,13 +137,14 @@ impl<C: PtyConsumer> Session<C> {
             }
         }
 
-        // Notify reactor for potential kill escalation (SIGHUP -> 2s -> SIGKILL)
-        if let Ok(guard) = self.cmd_tx.lock() {
-            if let Some(ref cb) = *guard {
-                cb(ReactorCmd::ScheduleKillEscalation {
-                    tab_id: self.id,
-                    pid: self.pid,
-                });
+        if sig.0 == 1 {
+            if let Ok(guard) = self.cmd_tx.lock() {
+                if let Some(ref cb) = *guard {
+                    cb(ReactorCmd::ScheduleKillEscalation {
+                        tab_id: self.id,
+                        pid: pgrp,
+                    });
+                }
             }
         }
     }

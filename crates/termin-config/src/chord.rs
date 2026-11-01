@@ -283,11 +283,17 @@ mod tests {
         let diags_bad_action =
             validate_keybinding_entry("cmd+d", "non_existent_action", None, validator);
         assert_eq!(diags_bad_action.len(), 1);
-        assert_eq!(diags_bad_action[0].level, crate::diagnostic::DiagnosticLevel::Error);
+        assert_eq!(
+            diags_bad_action[0].level,
+            crate::diagnostic::DiagnosticLevel::Error
+        );
 
         let diags_bad_when =
             validate_keybinding_entry("cmd+d", "split_right", Some("invalid_when"), validator);
         assert_eq!(diags_bad_when.len(), 1);
-        assert_eq!(diags_bad_when[0].level, crate::diagnostic::DiagnosticLevel::Warning);
+        assert_eq!(
+            diags_bad_when[0].level,
+            crate::diagnostic::DiagnosticLevel::Warning
+        );
     }
 }

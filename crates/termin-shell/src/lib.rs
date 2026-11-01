@@ -107,16 +107,8 @@ impl Env {
         Self::set_or_replace(&mut env, "TERM", "xterm-256color");
         Self::set_or_replace(&mut env, "COLORTERM", "truecolor");
         Self::set_or_replace(&mut env, "TERM_PROGRAM", "termin");
-        Self::set_or_replace(
-            &mut env,
-            "TERM_PROGRAM_VERSION",
-            env!("CARGO_PKG_VERSION"),
-        );
-        Self::set_or_replace(
-            &mut env,
-            "TERMIN_SOCKET",
-            &socket_path.to_string_lossy(),
-        );
+        Self::set_or_replace(&mut env, "TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+        Self::set_or_replace(&mut env, "TERMIN_SOCKET", &socket_path.to_string_lossy());
         Self::set_or_replace(
             &mut env,
             "TERMIN_WORKSPACE_ID",
@@ -236,10 +228,7 @@ pub fn prepare_injection(
             }
         }
         let zsh_dir = integration_dir.join("zsh");
-        env.push((
-            "ZDOTDIR".to_string(),
-            zsh_dir.to_string_lossy().to_string(),
-        ));
+        env.push(("ZDOTDIR".to_string(), zsh_dir.to_string_lossy().to_string()));
     } else if file_name.contains("bash") {
         let rcfile = integration_dir.join("bash").join("termin.bashrc");
         if is_login {
@@ -368,8 +357,12 @@ mod tests {
         assert!(env
             .iter()
             .any(|(k, v)| k == "TERM" && v == "xterm-256color"));
-        assert!(env.iter().any(|(k, v)| k == "COLORTERM" && v == "truecolor"));
-        assert!(env.iter().any(|(k, v)| k == "TERM_PROGRAM" && v == "termin"));
+        assert!(env
+            .iter()
+            .any(|(k, v)| k == "COLORTERM" && v == "truecolor"));
+        assert!(env
+            .iter()
+            .any(|(k, v)| k == "TERM_PROGRAM" && v == "termin"));
         assert!(env.iter().any(|(k, v)| k == "TERMIN_TAB_ID" && v == "3"));
         assert!(env
             .iter()
@@ -404,7 +397,9 @@ mod tests {
         let mut args = vec!["-zsh".to_string()];
         let path = Path::new("/tmp/termin/shell/v1");
         prepare_injection(Path::new("/bin/zsh"), true, path, &mut env, &mut args);
-        assert!(env.iter().any(|(k, v)| k == "ZDOTDIR" && v.ends_with("/zsh")));
+        assert!(env
+            .iter()
+            .any(|(k, v)| k == "ZDOTDIR" && v.ends_with("/zsh")));
     }
 
     #[test]

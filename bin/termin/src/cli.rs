@@ -313,9 +313,11 @@ fn parse_split(args: &[String]) -> Result<Subcommand, CliParseError> {
                 if i + 1 >= args.len() {
                     return Err(CliParseError("missing value for --pane".into()));
                 }
-                pane = Some(args[i + 1].parse::<u32>().map_err(|_| {
-                    CliParseError("pane id must be an integer".into())
-                })?);
+                pane = Some(
+                    args[i + 1]
+                        .parse::<u32>()
+                        .map_err(|_| CliParseError("pane id must be an integer".into()))?,
+                );
                 i += 2;
             }
             "--cwd" => {
@@ -369,9 +371,11 @@ fn parse_tab(args: &[String]) -> Result<Subcommand, CliParseError> {
                 if i + 1 >= args.len() {
                     return Err(CliParseError("missing value for --pane".into()));
                 }
-                pane = Some(args[i + 1].parse::<u32>().map_err(|_| {
-                    CliParseError("pane id must be an integer".into())
-                })?);
+                pane = Some(
+                    args[i + 1]
+                        .parse::<u32>()
+                        .map_err(|_| CliParseError("pane id must be an integer".into()))?,
+                );
                 i += 2;
             }
             "--cwd" => {
@@ -402,11 +406,7 @@ fn parse_tab(args: &[String]) -> Result<Subcommand, CliParseError> {
     };
 
     let pane = pane.or_else(|| env_u32("TERMIN_PANE"));
-    Ok(Subcommand::Tab {
-        pane,
-        cwd,
-        command,
-    })
+    Ok(Subcommand::Tab { pane, cwd, command })
 }
 
 fn parse_focus(args: &[String]) -> Result<Subcommand, CliParseError> {
@@ -433,9 +433,11 @@ fn parse_send(args: &[String]) -> Result<Subcommand, CliParseError> {
                 if i + 1 >= args.len() {
                     return Err(CliParseError("missing value for --tab".into()));
                 }
-                tab = Some(args[i + 1].parse::<u32>().map_err(|_| {
-                    CliParseError("tab id must be an integer".into())
-                })?);
+                tab = Some(
+                    args[i + 1]
+                        .parse::<u32>()
+                        .map_err(|_| CliParseError("tab id must be an integer".into()))?,
+                );
                 i += 2;
             }
             "-e" => {
@@ -471,7 +473,11 @@ fn parse_send(args: &[String]) -> Result<Subcommand, CliParseError> {
     };
 
     let tab = tab.or_else(|| env_u32("TERMIN_TAB"));
-    Ok(Subcommand::Send { tab, text, unescape })
+    Ok(Subcommand::Send {
+        tab,
+        text,
+        unescape,
+    })
 }
 
 fn parse_keys(args: &[String]) -> Result<Subcommand, CliParseError> {
@@ -485,9 +491,11 @@ fn parse_keys(args: &[String]) -> Result<Subcommand, CliParseError> {
                 if i + 1 >= args.len() {
                     return Err(CliParseError("missing value for --tab".into()));
                 }
-                tab = Some(args[i + 1].parse::<u32>().map_err(|_| {
-                    CliParseError("tab id must be an integer".into())
-                })?);
+                tab = Some(
+                    args[i + 1]
+                        .parse::<u32>()
+                        .map_err(|_| CliParseError("tab id must be an integer".into()))?,
+                );
                 i += 2;
             }
             "--" => {
@@ -527,18 +535,22 @@ fn parse_read(args: &[String]) -> Result<Subcommand, CliParseError> {
                 if i + 1 >= args.len() {
                     return Err(CliParseError("missing value for --tab".into()));
                 }
-                tab = Some(args[i + 1].parse::<u32>().map_err(|_| {
-                    CliParseError("tab id must be an integer".into())
-                })?);
+                tab = Some(
+                    args[i + 1]
+                        .parse::<u32>()
+                        .map_err(|_| CliParseError("tab id must be an integer".into()))?,
+                );
                 i += 2;
             }
             "--lines" => {
                 if i + 1 >= args.len() {
                     return Err(CliParseError("missing value for --lines".into()));
                 }
-                lines = Some(args[i + 1].parse::<usize>().map_err(|_| {
-                    CliParseError("lines must be an integer".into())
-                })?);
+                lines = Some(
+                    args[i + 1]
+                        .parse::<usize>()
+                        .map_err(|_| CliParseError("lines must be an integer".into()))?,
+                );
                 i += 2;
             }
             "--scrollback" => {
@@ -574,9 +586,11 @@ fn parse_notify(args: &[String]) -> Result<Subcommand, CliParseError> {
                 if i + 1 >= args.len() {
                     return Err(CliParseError("missing value for --tab".into()));
                 }
-                tab = Some(args[i + 1].parse::<u32>().map_err(|_| {
-                    CliParseError("tab id must be an integer".into())
-                })?);
+                tab = Some(
+                    args[i + 1]
+                        .parse::<u32>()
+                        .map_err(|_| CliParseError("tab id must be an integer".into()))?,
+                );
                 i += 2;
             }
             "--title" => {
@@ -626,9 +640,11 @@ fn parse_status(args: &[String]) -> Result<Subcommand, CliParseError> {
                 if i + 1 >= args.len() {
                     return Err(CliParseError("missing value for --workspace".into()));
                 }
-                workspace = Some(args[i + 1].parse::<u32>().map_err(|_| {
-                    CliParseError("workspace id must be an integer".into())
-                })?);
+                workspace = Some(
+                    args[i + 1]
+                        .parse::<u32>()
+                        .map_err(|_| CliParseError("workspace id must be an integer".into()))?,
+                );
                 i += 2;
             }
             "--" => {
@@ -663,9 +679,8 @@ fn parse_action(args: &[String]) -> Result<Subcommand, CliParseError> {
     let name = args[0].clone();
     let args_val = if args.len() > 1 {
         let json_str = args[1..].join(" ");
-        let val: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
-            CliParseError(format!("action argument is not valid JSON: {}", e))
-        })?;
+        let val: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(|e| CliParseError(format!("action argument is not valid JSON: {}", e)))?;
         Some(val)
     } else {
         None
@@ -754,9 +769,7 @@ where
         _ => {}
     }
 
-    let socket_path = invocation
-        .socket_path
-        .unwrap_or_else(resolve_socket_path);
+    let socket_path = invocation.socket_path.unwrap_or_else(resolve_socket_path);
 
     let mut client = match Client::connect(&socket_path) {
         Ok(c) => c,
@@ -936,7 +949,9 @@ fn execute_command(client: &mut Client, cmd: &Subcommand) -> Result<serde_json::
                     return client.call(method, params);
                 }
             }
-            Err(IpcError::Protocol("raw JSON must contain a 'method' field".into()))
+            Err(IpcError::Protocol(
+                "raw JSON must contain a 'method' field".into(),
+            ))
         }
     }
 }
@@ -1141,7 +1156,16 @@ mod tests {
 
     #[test]
     fn test_parse_read() {
-        let inv = parse_args(&["termin", "read", "--tab", "2", "--lines", "10", "--scrollback"]).unwrap();
+        let inv = parse_args(&[
+            "termin",
+            "read",
+            "--tab",
+            "2",
+            "--lines",
+            "10",
+            "--scrollback",
+        ])
+        .unwrap();
         assert_eq!(
             inv.command,
             Subcommand::Read {
@@ -1222,7 +1246,12 @@ mod tests {
         assert_eq!(run(&["termin", "--help"]), EXIT_OK);
         assert_eq!(run(&["termin", "invalid_subcmd"]), EXIT_ERROR);
         assert_eq!(
-            run(&["termin", "--socket", "/tmp/termin-fake-test-nonexistent.sock", "ls"]),
+            run(&[
+                "termin",
+                "--socket",
+                "/tmp/termin-fake-test-nonexistent.sock",
+                "ls"
+            ]),
             EXIT_CANNOT_CONNECT
         );
     }

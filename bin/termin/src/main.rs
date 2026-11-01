@@ -3,10 +3,11 @@
 //! See `docs/architecture.md §1` and `docs/specs/ipc-cli.md §4`.
 
 mod cli;
+mod gui;
 
 use std::env;
 use std::process;
-use termin_ipc::protocol::{METHOD_RUN_ACTION, RunActionParams};
+use termin_ipc::protocol::{RunActionParams, METHOD_RUN_ACTION};
 use termin_ipc::{resolve_socket_path, Client};
 
 fn is_cli_subcommand_or_flag(arg: &str) -> bool {
@@ -58,6 +59,6 @@ fn main() {
         process::exit(0);
     }
 
-    // Otherwise, launch GUI (or Phase 1 stub version print)
-    println!("termin {}", env!("CARGO_PKG_VERSION"));
+    // Otherwise, launch GUI
+    gui::run_gui();
 }

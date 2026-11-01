@@ -8,9 +8,7 @@ use std::time::Instant;
 
 use crate::macos::accessibility::post_value_changed_notification;
 use crate::macos::input::device_modifiers::{NX_DEVICELALTKEYMASK, NX_DEVICERALTKEYMASK};
-use crate::macos::input::{
-    extract_mods, resolve_key, selector_to_named_key, translate_keycode,
-};
+use crate::macos::input::{extract_mods, resolve_key, selector_to_named_key, translate_keycode};
 use crate::{Appearance, PlatformEvent};
 use termin_core::{
     Key, KeyEvent, MouseButton, MouseEvent, MouseKind, Point, Rect, ScrollEvent, ScrollPhase, Size,
@@ -19,19 +17,17 @@ use termin_core::{
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{
-    declare_class, msg_send, msg_send_id, mutability, ClassType, DeclaredClass,
-};
+use objc2::{declare_class, msg_send, msg_send_id, mutability, ClassType, DeclaredClass};
 use objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSDragOperation, NSDraggingDestination,
     NSDraggingInfo, NSEvent, NSEventModifierFlags, NSEventPhase, NSFilenamesPboardType, NSMenu,
-    NSPasteboardTypeFileURL, NSResponder, NSTextInputClient, NSTrackingArea,
-    NSTrackingAreaOptions, NSView, NSViewLayerContentsRedrawPolicy,
+    NSPasteboardTypeFileURL, NSResponder, NSTextInputClient, NSTrackingArea, NSTrackingAreaOptions,
+    NSView, NSViewLayerContentsRedrawPolicy,
 };
 use objc2_foundation::{
-    CGFloat, MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey,
-    NSNotFound, NSObject, NSObjectProtocol, NSPoint, NSRange, NSRangePointer,
-    NSRect, NSSize, NSString, NSURL, NSUserDefaults, NSValue,
+    CGFloat, MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound,
+    NSObject, NSObjectProtocol, NSPoint, NSRange, NSRangePointer, NSRect, NSSize, NSString,
+    NSUserDefaults, NSValue, NSURL,
 };
 use objc2_metal::MTLPixelFormat;
 use objc2_quartz_core::{CALayer, CAMetalLayer};
@@ -47,6 +43,7 @@ pub struct TerminViewIvars {
     pub in_key_down: RefCell<Option<Retained<NSEvent>>>,
     pub key_down_handled: Cell<bool>,
     pub accessible_text: RefCell<String>,
+    pub accessibility_tree: RefCell<crate::accessibility::AccessibilityTreeSnapshot>,
     pub last_accessibility_notify: RefCell<Option<Instant>>,
 }
 
@@ -638,6 +635,7 @@ declare_class!(
                 ));
             }
 
+            crate::macos::app::set_window_size_and_scale(win_id, size, scale);
             crate::macos::app::dispatch_event(
                 win_id,
                 PlatformEvent::Resized { size, scale },
@@ -666,6 +664,7 @@ declare_class!(
                 ));
             }
 
+            crate::macos::app::set_window_size_and_scale(win_id, size, scale);
             crate::macos::app::dispatch_event(
                 win_id,
                 PlatformEvent::Resized { size, scale },
@@ -686,6 +685,7 @@ declare_class!(
                 Appearance::Light
             };
 
+            crate::macos::app::set_appearance(appearance);
             crate::macos::app::dispatch_event(
                 win_id,
                 PlatformEvent::Appearance(appearance),
@@ -706,7 +706,35 @@ declare_class!(
 
         #[method_id(accessibilityRole)]
         fn accessibility_role(&self) -> Retained<NSString> {
-            NSString::from_str("AXTextArea")
+            let tree = self.ivars().accessibility_tree.borrow();
+            if tree.root.is_some() {
+                NSString::from_str("AXGroup")
+            } else {
+                NSString::from_str("AXTextArea")
+            }
+        }
+
+        #[method_id(accessibilityChildren)]
+        fn accessibility_children(&self) -> Option<Retained<NSArray<AnyObject>>> {
+            let tree = self.ivars().accessibility_tree.borrow();
+            if let Some(root) = tree.root() {
+                let mtm = MainThreadMarker::from(self);
+                let mut elements: Vec<Retained<AnyObject>> = Vec::new();
+                for child in &root.children {
+                    elements.push(crate::macos::accessibility::build_native_element(
+                        child,
+                        self.as_ref(),
+                        mtm,
+                    ));
+                }
+                if elements.is_empty() {
+                    None
+                } else {
+                    Some(NSArray::from_id_slice(&elements))
+                }
+            } else {
+                None
+            }
         }
 
         #[method_id(accessibilityValue)]
@@ -984,6 +1012,7 @@ impl TerminView {
             in_key_down: RefCell::new(None),
             key_down_handled: Cell::new(false),
             accessible_text: RefCell::new(String::new()),
+            accessibility_tree: RefCell::new(crate::accessibility::AccessibilityTreeSnapshot::empty()),
             last_accessibility_notify: RefCell::new(None),
         });
 
@@ -1028,7 +1057,10 @@ impl TerminView {
         if regions.is_empty() {
             // Default 38 pt titlebar drag region
             let bounds = self.bounds();
-            return pt.y >= 0.0 && pt.y <= 38.0 && pt.x >= 0.0 && pt.x <= (bounds.size.width as f32);
+            return pt.y >= 0.0
+                && pt.y <= 38.0
+                && pt.x >= 0.0
+                && pt.x <= (bounds.size.width as f32);
         }
         for r in regions.iter() {
             if pt.x >= r.x && pt.x <= (r.x + r.w) && pt.y >= r.y && pt.y <= (r.y + r.h) {
@@ -1043,5 +1075,20 @@ impl TerminView {
         *self.ivars().accessible_text.borrow_mut() = text.to_string();
         let mut last_notify = self.ivars().last_accessibility_notify.borrow_mut();
         post_value_changed_notification(self.as_ref(), &mut last_notify);
+    }
+
+    /// Update exposed accessibility tree and sync terminal text.
+    pub fn set_accessibility_tree(&self, tree: crate::accessibility::AccessibilityTreeSnapshot) {
+        if let Some(text) = tree.terminal_output_text() {
+            *self.ivars().accessible_text.borrow_mut() = text.to_string();
+            let mut last_notify = self.ivars().last_accessibility_notify.borrow_mut();
+            post_value_changed_notification(self.as_ref(), &mut last_notify);
+        }
+        *self.ivars().accessibility_tree.borrow_mut() = tree;
+    }
+
+    /// Post a VoiceOver announcement.
+    pub fn announce(&self, message: &str) {
+        crate::macos::accessibility::post_accessibility_announcement(self.as_ref(), message);
     }
 }

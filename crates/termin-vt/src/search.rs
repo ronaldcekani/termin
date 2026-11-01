@@ -168,7 +168,13 @@ mod tests {
         let mut graphemes = GraphemeTable::new();
 
         for c in "Hello world".chars() {
-            grid.print_char(c, 0, crate::modes::Modes::AUTOWRAP, &mut pool, &mut graphemes);
+            grid.print_char(
+                c,
+                0,
+                crate::modes::Modes::AUTOWRAP,
+                &mut pool,
+                &mut graphemes,
+            );
         }
 
         let query = SearchQuery {

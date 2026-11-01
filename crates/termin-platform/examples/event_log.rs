@@ -3,20 +3,18 @@
 //! Opens two windows, clears each with a distinct color via raw Metal,
 //! and logs all platform events to stdout.
 
-use termin_core::{
-    Key, NamedKey, PaneId, Rect, TabId, WindowId, WorkspaceId,
-};
+use termin_core::{Key, NamedKey, PaneId, Rect, TabId, WindowId, WorkspaceId};
 use termin_platform::{
-    ActionId, AppHandler, MacPlatform, MenuItemSpec, MenuSpec, Platform, PlatformCx,
-    PlatformEvent, RenderTarget, SystemNotification, WindowOpts,
+    ActionId, AppHandler, MacPlatform, MenuItemSpec, MenuSpec, Platform, PlatformCx, PlatformEvent,
+    RenderTarget, SystemNotification, WindowOpts,
 };
 
 #[cfg(target_os = "macos")]
 use objc2::runtime::ProtocolObject;
 #[cfg(target_os = "macos")]
 use objc2_metal::{
-    MTLClearColor, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue, MTLDevice,
-    MTLLoadAction, MTLRenderPassDescriptor, MTLStoreAction,
+    MTLClearColor, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue, MTLDevice, MTLLoadAction,
+    MTLRenderPassDescriptor, MTLStoreAction,
 };
 #[cfg(target_os = "macos")]
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
@@ -183,52 +181,53 @@ impl AppHandler for EventLogApp {
                 );
                 cx.request_frame(win);
             }
-            PlatformEvent::Key(key_ev) if key_ev.pressed => {
-                match key_ev.key {
-                    Key::Char('f') => {
-                        println!("Toggling fullscreen on {:?}", win);
-                        cx.toggle_fullscreen(win);
-                    }
-                    Key::Char('c') => {
-                        let text = format!("Termin copied text from window {:?}", win);
-                        println!("Writing to clipboard: {}", text);
-                        cx.clipboard_set(&text);
-                    }
-                    Key::Char('v') => {
-                        println!("Clipboard content: {:?}", cx.clipboard_get());
-                    }
-                    Key::Char('n') => {
-                        println!("Posting notification...");
-                        cx.notify(&SystemNotification {
-                            title: "Termin Event Log".into(),
-                            body: format!("Triggered from window {:?}", win),
-                            window: win,
-                            workspace: WorkspaceId(1),
-                            pane: PaneId(1),
-                            tab: TabId(1),
-                        });
-                    }
-                    Key::Char('b') => {
-                        println!("Setting dock badge to 1");
-                        cx.set_badge(1);
-                    }
-                    Key::Char('q') | Key::Named(NamedKey::Escape) => {
-                        println!("Closing window {:?}", win);
-                        cx.close_window(win);
-                        if self.win1 == Some(win) {
-                            self.win1 = None;
-                        } else if self.win2 == Some(win) {
-                            self.win2 = None;
-                        }
-                    }
-                    _ => {}
+            PlatformEvent::Key(key_ev) if key_ev.pressed => match key_ev.key {
+                Key::Char('f') => {
+                    println!("Toggling fullscreen on {:?}", win);
+                    cx.toggle_fullscreen(win);
                 }
-            }
+                Key::Char('c') => {
+                    let text = format!("Termin copied text from window {:?}", win);
+                    println!("Writing to clipboard: {}", text);
+                    cx.clipboard_set(&text);
+                }
+                Key::Char('v') => {
+                    println!("Clipboard content: {:?}", cx.clipboard_get());
+                }
+                Key::Char('n') => {
+                    println!("Posting notification...");
+                    cx.notify(&SystemNotification {
+                        title: "Termin Event Log".into(),
+                        body: format!("Triggered from window {:?}", win),
+                        window: win,
+                        workspace: WorkspaceId(1),
+                        pane: PaneId(1),
+                        tab: TabId(1),
+                    });
+                }
+                Key::Char('b') => {
+                    println!("Setting dock badge to 1");
+                    cx.set_badge(1);
+                }
+                Key::Char('q') | Key::Named(NamedKey::Escape) => {
+                    println!("Closing window {:?}", win);
+                    cx.close_window(win);
+                    if self.win1 == Some(win) {
+                        self.win1 = None;
+                    } else if self.win2 == Some(win) {
+                        self.win2 = None;
+                    }
+                }
+                _ => {}
+            },
             PlatformEvent::FileDrop(paths) => {
                 println!("Dropped files on window {:?}: {:?}", win, paths);
             }
             PlatformEvent::ImeCompose { text, cursor } => {
-                println!("IME composing on window {:?}: text='{}', cursor={:?}", win, text, cursor);
+                println!(
+                    "IME composing on window {:?}: text='{}', cursor={:?}",
+                    win, text, cursor
+                );
             }
             PlatformEvent::ImeCommit(text) => {
                 println!("IME commit on window {:?}: text='{}'", win, text);

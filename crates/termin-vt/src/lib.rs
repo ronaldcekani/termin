@@ -125,17 +125,23 @@ pub struct Terminal {
     alt_grid: grid::Grid,
     is_alt_screen: bool,
     scrollback: Scrollback,
+    /// Number of hot scrollback rows the display is scrolled above the live screen.
+    display_scroll: usize,
+    /// Reused decoded cold rows for `view_with_cold`; bottom rendering does not touch it.
+    cold_view_rows: Vec<Row>,
     blocks: BlockList,
     styles: StyleTable,
     graphemes: GraphemeTable,
     hyperlinks: HyperlinkTable,
     row_pool: RowPool,
     parser: Parser,
+    parser_in_ground: bool,
     palette: [Rgba; 256],
     default_fg: Rgba,
     default_bg: Rgba,
     current_style: Style,
     current_style_id: u16,
+    selection: Option<Selection>,
 }
 
 impl Terminal {
@@ -166,22 +172,30 @@ impl Terminal {
             alt_grid,
             is_alt_screen: false,
             scrollback,
+            display_scroll: 0,
+            cold_view_rows: Vec::new(),
             blocks: BlockList::new(),
             styles: StyleTable::new(),
             graphemes: GraphemeTable::new(),
             hyperlinks: HyperlinkTable::new(),
             row_pool,
             parser: Parser::new(),
+            parser_in_ground: true,
             palette,
             default_fg,
             default_bg,
             current_style: Style::default(),
             current_style_id: 0,
+            selection: None,
         }
     }
 
     /// Advance terminal state by parsing incoming PTY bytes.
     pub fn advance(&mut self, bytes: &[u8], sink: &mut impl EffectSink) {
+        // Keep a scrolled-up viewport anchored to the same history when new rows
+        // are appended. `display_scroll` is measured from the live bottom, so it
+        // must grow by the number of rows pushed while the user is away from it.
+        let old_total_pushed = self.scrollback.total_pushed;
         let had_dirty = self.damage.all
             || self.damage.cursor_moved
             || self.damage.scrolled != 0
@@ -213,14 +227,63 @@ impl Terminal {
                 default_bg: self.default_bg,
                 dcs_active: false,
                 dcs_bytes: Vec::new(),
+                in_ground: self.parser_in_ground,
             };
 
-            self.parser.advance(&mut handler, bytes);
+            let mut idx = 0;
+            let len = bytes.len();
+            while idx < len {
+                let b = bytes[idx];
+                if handler.in_ground && !handler.dcs_active {
+                    if (0x20..=0x7e).contains(&b) && handler.can_fast_ascii() {
+                        let max_cols = {
+                            let g = if handler.is_alt_screen {
+                                &*handler.alt_grid
+                            } else {
+                                &*handler.grid
+                            };
+                            (g.cols.saturating_sub(1).saturating_sub(g.cursor_col)) as usize
+                        };
+                        if max_cols > 0 {
+                            let limit = (idx + max_cols).min(len);
+                            let mut end = idx + 1;
+                            while end < limit {
+                                let nb = bytes[end];
+                                if !(0x20..=0x7e).contains(&nb) {
+                                    break;
+                                }
+                                end += 1;
+                            }
+                            handler.print_ascii_slice(&bytes[idx..end]);
+                            idx = end;
+                            continue;
+                        }
+                    } else if b == b'\n' || b == b'\r' {
+                        vte::Perform::execute(&mut handler, b);
+                        idx += 1;
+                        continue;
+                    }
+                }
+                if b == 0x1b || b >= 0x80 {
+                    handler.in_ground = false;
+                }
+                self.parser.advance(&mut handler, &bytes[idx..idx + 1]);
+                idx += 1;
+            }
 
             self.is_alt_screen = handler.is_alt_screen;
             self.current_style = handler.current_style;
             self.current_style_id = handler.current_style_id;
+            self.parser_in_ground = handler.in_ground;
         }
+        let pushed = self
+            .scrollback
+            .total_pushed
+            .saturating_sub(old_total_pushed);
+        if self.display_scroll > 0 {
+            self.display_scroll = self.display_scroll.saturating_add(pushed as usize);
+        }
+        self.clamp_display_scroll();
 
         // Bumping generation: suppressed while ?2026 synchronized output is active
         if !self.modes.contains(Modes::SYNC_OUTPUT) {
@@ -254,6 +317,7 @@ impl Terminal {
         }
 
         self.scrollback.resize(cols, rows);
+        self.clamp_display_scroll();
         self.damage = Damage::new(rows);
         self.generation += 1;
     }
@@ -293,7 +357,7 @@ impl Terminal {
             ScrollPos::Lines(lines) => {
                 let screen_rows = self.grid.rows.len();
                 let hot_len = self.scrollback.hot_len();
-                let lines = (lines as usize).min(hot_len);
+                let lines = usize::try_from(lines).unwrap_or(usize::MAX).min(hot_len);
 
                 if lines == 0 {
                     return GridView::Screen {
@@ -303,10 +367,18 @@ impl Terminal {
                 }
 
                 let mut views = Vec::with_capacity(screen_rows);
-                let hot_start = hot_len.saturating_sub(lines);
-
-                for i in hot_start..hot_len {
-                    if let Some(r) = self.scrollback.get_hot(i) {
+                // Treat history followed by the live screen as one row sequence and
+                // select the screen-sized window ending `lines` rows before bottom.
+                let start = hot_len.saturating_sub(lines);
+                for i in start..start.saturating_add(screen_rows) {
+                    if i < hot_len {
+                        if let Some(r) = self.scrollback.get_hot(i) {
+                            views.push(RowView {
+                                cells: &r.cells,
+                                wrapped: r.flags.contains(RowFlags::WRAPPED),
+                            });
+                        }
+                    } else if let Some(r) = self.grid.rows.get(i - hot_len) {
                         views.push(RowView {
                             cells: &r.cells,
                             wrapped: r.flags.contains(RowFlags::WRAPPED),
@@ -314,18 +386,120 @@ impl Terminal {
                     }
                 }
 
-                let remaining = screen_rows.saturating_sub(views.len());
-                for i in 0..remaining.min(self.grid.rows.len()) {
-                    let r = &self.grid.rows[i];
-                    views.push(RowView {
-                        cells: &r.cells,
-                        wrapped: r.flags.contains(RowFlags::WRAPPED),
-                    });
-                }
-
                 GridView::Scrolled { views, idx: 0 }
             }
         }
+    }
+
+    /// Iterate a viewport that can include cold scrollback.
+    ///
+    /// Unlike `view`, this method requires mutable access because cold logical
+    /// lines are decoded into the bounded per-tab chunk cache and a viewport-sized
+    /// scratch buffer. `ScrollPos::Lines` counts physical rows above the live
+    /// screen. Bottom rendering should continue to use `view(ScrollPos::Bottom)`.
+    pub fn view_with_cold(&mut self, scroll: ScrollPos) -> GridView<'_> {
+        if self.is_alt_screen {
+            return GridView::Screen {
+                rows: &self.alt_grid.rows,
+                idx: 0,
+            };
+        }
+
+        let cols = self.cfg.cols;
+        let screen_rows = self.grid.rows.len();
+        let hot_len = self.scrollback.hot_len();
+        let lines = match scroll {
+            ScrollPos::Bottom => 0,
+            ScrollPos::Lines(lines) => usize::try_from(lines).unwrap_or(usize::MAX),
+        };
+        if lines == 0 {
+            return GridView::Screen {
+                rows: &self.grid.rows,
+                idx: 0,
+            };
+        }
+
+        let mut cold_len = 0usize;
+        for chunk in &self.scrollback.cold_tier.chunks {
+            cold_len = cold_len.saturating_add(chunk.rows_at_width(cols) as usize);
+        }
+        let pending_chunk = self.scrollback.cold_builder.snapshot_chunk();
+        let pending_rows = pending_chunk
+            .as_ref()
+            .map_or(0, |chunk| chunk.rows_at_width(cols) as usize);
+        cold_len = cold_len.saturating_add(pending_rows);
+
+        let total = cold_len.saturating_add(hot_len).saturating_add(screen_rows);
+        let start = total
+            .saturating_sub(screen_rows)
+            .saturating_sub(lines.min(total.saturating_sub(screen_rows)));
+        let end = start.saturating_add(screen_rows).min(total);
+
+        // Only materialize cold rows intersecting this viewport. Sealed chunks
+        // use the existing four-entry decoded LRU; builder data is bounded to
+        // one chunk and decoded only when the viewport reaches it.
+        self.cold_view_rows.clear();
+        let cold_end = end.min(cold_len);
+        if start < cold_end {
+            let mut chunk_start = 0usize;
+            for chunk_idx in 0..self.scrollback.cold_tier.chunks.len() {
+                let chunk_rows =
+                    self.scrollback.cold_tier.chunks[chunk_idx].rows_at_width(cols) as usize;
+                let chunk_end = chunk_start.saturating_add(chunk_rows);
+                let overlap_start = start.max(chunk_start);
+                let overlap_end = cold_end.min(chunk_end);
+                if overlap_start < overlap_end {
+                    if let Some(rows) = self.scrollback.cold_tier.get_decoded_rows(
+                        chunk_idx,
+                        cols,
+                        &mut self.styles,
+                        &mut self.graphemes,
+                    ) {
+                        self.cold_view_rows.extend_from_slice(
+                            &rows[overlap_start - chunk_start..overlap_end - chunk_start],
+                        );
+                    }
+                }
+                chunk_start = chunk_end;
+            }
+
+            let pending_start = chunk_start;
+            let pending_end = pending_start.saturating_add(pending_rows);
+            let overlap_start = start.max(pending_start);
+            let overlap_end = cold_end.min(pending_end);
+            if overlap_start < overlap_end {
+                if let Some(chunk) = pending_chunk {
+                    let rows = chunk.decode_all_rows(cols, &mut self.styles, &mut self.graphemes);
+                    self.cold_view_rows.extend_from_slice(
+                        &rows[overlap_start - pending_start..overlap_end - pending_start],
+                    );
+                }
+            }
+        }
+
+        let mut views = Vec::with_capacity(screen_rows);
+        for idx in start..end {
+            if idx < cold_len {
+                let row = &self.cold_view_rows[idx - start];
+                views.push(RowView {
+                    cells: &row.cells,
+                    wrapped: row.flags.contains(RowFlags::WRAPPED),
+                });
+            } else if idx < cold_len + hot_len {
+                if let Some(row) = self.scrollback.get_hot(idx - cold_len) {
+                    views.push(RowView {
+                        cells: &row.cells,
+                        wrapped: row.flags.contains(RowFlags::WRAPPED),
+                    });
+                }
+            } else if let Some(row) = self.grid.rows.get(idx - cold_len - hot_len) {
+                views.push(RowView {
+                    cells: &row.cells,
+                    wrapped: row.flags.contains(RowFlags::WRAPPED),
+                });
+            }
+        }
+        GridView::Scrolled { views, idx: 0 }
     }
 
     /// Active modes (alt screen, bracketed paste, mouse, etc.).
@@ -470,6 +644,12 @@ impl Terminal {
             + self.grid.rows.len() as u64
     }
 
+    /// Resolve a grapheme-cluster index stored in a cell (see `Cell::grapheme_index`).
+    #[inline]
+    pub fn grapheme(&self, idx: u32) -> Option<&str> {
+        self.graphemes.get(idx)
+    }
+
     pub fn cols(&self) -> u16 {
         self.cfg.cols
     }
@@ -480,6 +660,143 @@ impl Terminal {
 
     pub fn is_alt_screen(&self) -> bool {
         self.is_alt_screen
+    }
+
+    pub fn cursor_screen_pos(&self) -> (u16, u16) {
+        if self.is_alt_screen {
+            (self.alt_grid.cursor_col, self.alt_grid.cursor_row)
+        } else {
+            (self.grid.cursor_col, self.grid.cursor_row)
+        }
+    }
+
+    pub fn scrollback_len(&self) -> usize {
+        (self.total_lines().saturating_sub(self.cfg.rows as u64)) as usize
+    }
+
+    pub fn cell_at(&self, col: u16, row: u16) -> Option<&Cell> {
+        let grid = if self.is_alt_screen {
+            &self.alt_grid
+        } else {
+            &self.grid
+        };
+        grid.rows
+            .get(row as usize)
+            .and_then(|r| r.cells.get(col as usize))
+    }
+
+    pub fn selection(&self) -> Option<&Selection> {
+        self.selection.as_ref()
+    }
+
+    pub fn set_selection(&mut self, sel: Option<Selection>) {
+        self.selection = sel;
+    }
+
+    pub fn select_word(&mut self, pos: AbsPos) {
+        self.selection = Some(Selection {
+            kind: SelectionKind::Word,
+            anchor: pos,
+            head: pos,
+        });
+    }
+
+    pub fn select_line(&mut self, abs_line: u64) {
+        self.selection = Some(Selection {
+            kind: SelectionKind::Line,
+            anchor: AbsPos::new(abs_line, 0),
+            head: AbsPos::new(abs_line, self.cols().saturating_sub(1)),
+        });
+    }
+
+    pub fn selection_text(&self, sel: &Selection) -> String {
+        let (start, end) = if sel.anchor <= sel.head {
+            (sel.anchor, sel.head)
+        } else {
+            (sel.head, sel.anchor)
+        };
+        selection::extract_text_range(
+            start.line,
+            AbsLine(end.line.0 + 1),
+            &self.grid,
+            &self.scrollback,
+            &self.graphemes,
+        )
+    }
+
+    pub fn scroll_display(&mut self, delta: i32) {
+        if self.is_alt_screen || delta == 0 {
+            return;
+        }
+
+        let old = self.display_scroll;
+        self.display_scroll = if delta > 0 {
+            self.display_scroll.saturating_add(delta as usize)
+        } else {
+            self.display_scroll
+                .saturating_sub(delta.unsigned_abs() as usize)
+        }
+        .min(self.retained_history_rows());
+
+        if old != self.display_scroll {
+            self.damage.all = true;
+            self.generation = self.generation.wrapping_add(1);
+        }
+    }
+
+    /// Current persistent display offset, in rows above the live screen.
+    #[inline]
+    pub fn display_scroll(&self) -> usize {
+        if self.is_alt_screen {
+            0
+        } else {
+            self.display_scroll.min(self.retained_history_rows())
+        }
+    }
+
+    /// Scroll position suitable for passing to `view` or a renderer cache.
+    #[inline]
+    pub fn display_scroll_pos(&self) -> ScrollPos {
+        match self.display_scroll() {
+            0 => ScrollPos::Bottom,
+            lines => ScrollPos::Lines(lines as u64),
+        }
+    }
+
+    /// Iterate the current persistent display view.
+    #[inline]
+    pub fn display_view(&self) -> GridView<'_> {
+        self.view(self.display_scroll_pos())
+    }
+
+    /// Iterate the persistent display view, including cold history when needed.
+    /// Use this in UI code that supports scrolling beyond the hot ring.
+    #[inline]
+    pub fn display_view_with_cold(&mut self) -> GridView<'_> {
+        self.view_with_cold(self.display_scroll_pos())
+    }
+
+    fn clamp_display_scroll(&mut self) {
+        self.display_scroll = self.display_scroll.min(self.retained_history_rows());
+    }
+
+    fn retained_history_rows(&self) -> usize {
+        let cols = self.cfg.cols;
+        let cold_rows = self
+            .scrollback
+            .cold_tier
+            .chunks
+            .iter()
+            .map(|chunk| chunk.rows_at_width(cols) as usize)
+            .sum::<usize>();
+        let pending_rows = self
+            .scrollback
+            .cold_builder
+            .snapshot_chunk()
+            .map_or(0, |chunk| chunk.rows_at_width(cols) as usize);
+        cold_rows
+            .saturating_add(pending_rows)
+            .saturating_add(self.scrollback.hot_len())
     }
 }
 
@@ -606,6 +923,155 @@ mod tests {
         };
         term.advance(b"abc", &mut sink);
         assert_eq!(term.generation(), 2);
+    }
+
+    #[test]
+    fn display_scrolling_persists_and_clamps_to_available_history() {
+        let cfg = TerminalConfig {
+            cols: 4,
+            rows: 2,
+            scrollback_lines: 100,
+            ..TerminalConfig::default()
+        };
+        let mut term = Terminal::new(&cfg);
+        let mut sink = RecordingSink {
+            written: Vec::new(),
+            effects: Vec::new(),
+        };
+        term.advance(b"1\r\n2\r\n3\r\n4\r\n", &mut sink);
+
+        let bottom: Vec<_> = term.display_view().collect();
+        assert_eq!(bottom.len(), 2);
+        assert_eq!(bottom[0].cells[0].ch, b'4' as u32);
+
+        term.scroll_display(1);
+        assert_eq!(term.display_scroll(), 1);
+        assert_eq!(term.display_scroll_pos(), ScrollPos::Lines(1));
+        let scrolled: Vec<_> = term.display_view().collect();
+        assert_eq!(scrolled.len(), 2);
+        assert_eq!(scrolled[0].cells[0].ch, b'3' as u32);
+
+        term.scroll_display(i32::MAX);
+        assert_eq!(
+            term.display_scroll(),
+            term.scrollback_len().min(term.scrollback.hot_len())
+        );
+        term.scroll_display(i32::MIN);
+        assert_eq!(term.display_scroll(), 0);
+        assert_eq!(term.display_scroll_pos(), ScrollPos::Bottom);
+    }
+
+    #[test]
+    fn scrolled_view_stays_anchored_when_new_output_arrives() {
+        let cfg = TerminalConfig {
+            cols: 4,
+            rows: 2,
+            scrollback_lines: 100,
+            ..TerminalConfig::default()
+        };
+        let mut term = Terminal::new(&cfg);
+        let mut sink = RecordingSink {
+            written: Vec::new(),
+            effects: Vec::new(),
+        };
+
+        term.advance(b"1\r\n2\r\n3\r\n4\r\n", &mut sink);
+        term.scroll_display(1);
+        let before: Vec<_> = term.display_view().map(|row| row.cells[0].ch).collect();
+        assert_eq!(before, vec![b'3' as u32, b'4' as u32]);
+
+        term.advance(b"5\r\n", &mut sink);
+        let after: Vec<_> = term.display_view().map(|row| row.cells[0].ch).collect();
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn cached_view_includes_sealed_and_active_cold_history_by_physical_row() {
+        let cfg = TerminalConfig {
+            cols: 3,
+            rows: 2,
+            scrollback_lines: 100,
+            ..TerminalConfig::default()
+        };
+        let mut term = Terminal::new(&cfg);
+
+        let mut sealed = scrollback::cold::ColdBuilder::new(0);
+        let mut row = Row::new(3);
+        for (col, ch) in "old".chars().enumerate() {
+            row.get_mut(col as u16).ch = ch as u32;
+        }
+        row.flags.insert(RowFlags::WRAPPED);
+        row.update_len();
+        sealed.push_row(&row, &term.styles, &term.graphemes);
+        let mut row = Row::new(3);
+        row.get_mut(0).ch = 'e' as u32;
+        row.get_mut(1).ch = 'r' as u32;
+        row.update_len();
+        sealed.push_row(&row, &term.styles, &term.graphemes);
+        term.scrollback.cold_tier.push_chunk(sealed.seal());
+
+        // This logical line remains in the active builder, as happens before a
+        // chunk reaches its sealing threshold.
+        let mut row = Row::new(3);
+        for (col, ch) in "new".chars().enumerate() {
+            row.get_mut(col as u16).ch = ch as u32;
+        }
+        row.flags.insert(RowFlags::WRAPPED);
+        row.update_len();
+        term.scrollback
+            .cold_builder
+            .push_row(&row, &term.styles, &term.graphemes);
+        let mut row = Row::new(3);
+        row.get_mut(0).ch = 'e' as u32;
+        row.get_mut(1).ch = 'r' as u32;
+        row.update_len();
+        term.scrollback
+            .cold_builder
+            .push_row(&row, &term.styles, &term.graphemes);
+
+        let mut hot = Row::new(3);
+        hot.get_mut(0).ch = 'H' as u32;
+        hot.update_len();
+        term.scrollback.hot_ring.push_back(hot);
+
+        assert_eq!(term.view_with_cold(ScrollPos::Bottom).count(), 2);
+        assert!(term.cold_view_rows.is_empty());
+
+        let rows: Vec<_> = term
+            .view_with_cold(ScrollPos::Lines(3))
+            .map(|row| row.cells[0].ch)
+            .collect();
+        // Three rows above the screen are the active-builder wrap rows and the
+        // hot row. The viewport therefore crosses both cold/hot boundaries.
+        assert_eq!(rows, vec![b'n' as u32, b'e' as u32]);
+
+        let rows: Vec<_> = term
+            .view_with_cold(ScrollPos::Lines(2))
+            .map(|row| row.cells[0].ch)
+            .collect();
+        assert_eq!(rows, vec![b'e' as u32, b'H' as u32]);
+        assert_eq!(term.cold_view_rows.len(), 1);
+
+        let rows: Vec<_> = term
+            .view_with_cold(ScrollPos::Lines(4))
+            .map(|row| row.cells[0].ch)
+            .collect();
+        assert_eq!(rows, vec![b'e' as u32, b'n' as u32]);
+
+        let rows: Vec<_> = term
+            .view_with_cold(ScrollPos::Lines(5))
+            .map(|row| row.cells[0].ch)
+            .collect();
+        assert_eq!(rows, vec![b'o' as u32, b'e' as u32]);
+        assert!(term.cold_view_rows.len() <= cfg.rows as usize);
+
+        term.scroll_display(5);
+        assert_eq!(term.display_scroll(), 5);
+        let rows: Vec<_> = term
+            .display_view_with_cold()
+            .map(|row| row.cells[0].ch)
+            .collect();
+        assert_eq!(rows, vec![b'o' as u32, b'e' as u32]);
     }
 
     #[test]

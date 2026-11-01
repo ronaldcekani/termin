@@ -51,9 +51,40 @@ pub struct ParserHandler<'a, S: EffectSink> {
     // DCS buffer
     pub dcs_active: bool,
     pub dcs_bytes: Vec<u8>,
+    pub in_ground: bool,
 }
 
 impl<'a, S: EffectSink> ParserHandler<'a, S> {
+    #[inline]
+    pub fn can_fast_ascii(&self) -> bool {
+        if !self.in_ground || self.dcs_active || self.modes.contains(Modes::INSERT) {
+            return false;
+        }
+        let g = if self.is_alt_screen {
+            &*self.alt_grid
+        } else {
+            &*self.grid
+        };
+        !g.pending_wrap
+            && g.gl == 0
+            && g.single_shift.is_none()
+            && g.g0 == crate::grid::Charset::Ascii
+            && g.cursor_col + 1 < g.cols
+    }
+
+    #[inline]
+    pub fn print_ascii_slice(&mut self, bytes: &[u8]) {
+        let style_id = self.current_style_id;
+        let is_alt = self.is_alt_screen;
+        let cur_row = {
+            let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+            let r = g.cursor_row;
+            g.print_ascii_run(bytes, style_id);
+            r
+        };
+        self.damage.mark_row(cur_row);
+    }
+
     fn current_line(&self) -> AbsLine {
         let base = self.scrollback.hot_base_line + self.scrollback.hot_len() as u64;
         let row = if self.is_alt_screen {
@@ -71,6 +102,7 @@ impl<'a, S: EffectSink> ParserHandler<'a, S> {
 
 impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
     fn print(&mut self, c: char) {
+        self.in_ground = true;
         let style_id = self.current_style_id;
         let modes = *self.modes;
         let is_alt = self.is_alt_screen;
@@ -83,20 +115,17 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
 
         let evicted = {
             let grid = active_grid_mut(is_alt, self.grid, self.alt_grid);
-            grid.print_char(
-                c,
-                style_id,
-                modes,
-                self.row_pool,
-                self.graphemes,
-            )
+            grid.print_char(c, style_id, modes, self.row_pool, self.graphemes)
         };
 
         if !is_alt {
-            for row in evicted {
-                self.scrollback.push(row, self.styles, self.graphemes);
+            if let Some(row) = evicted {
+                self.scrollback
+                    .push_into_pool(row, self.styles, self.graphemes, self.row_pool);
                 self.damage.add_scroll(-1);
             }
+        } else if let Some(row) = evicted {
+            self.row_pool.recycle(row);
         }
     }
 
@@ -140,13 +169,20 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
                 if should_scroll {
                     let evicted = {
                         let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
-                        g.scroll_up(1, style_id, self.row_pool)
+                        g.scroll_up_one(style_id, self.row_pool)
                     };
                     if !is_alt {
-                        for row in evicted {
-                            self.scrollback.push(row, self.styles, self.graphemes);
+                        if let Some(row) = evicted {
+                            self.scrollback.push_into_pool(
+                                row,
+                                self.styles,
+                                self.graphemes,
+                                self.row_pool,
+                            );
                             self.damage.add_scroll(-1);
                         }
+                    } else if let Some(row) = evicted {
+                        self.row_pool.recycle(row);
                     }
                 } else {
                     let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
@@ -181,6 +217,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {
+        self.in_ground = true;
         let modes = *self.modes;
         let style = self.current_style_id;
         let is_alt = self.is_alt_screen;
@@ -206,6 +243,59 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
                 self.damage.cursor_moved = true;
             }
 
+            // ESC D: IND (Index)
+            ([], b'D') => {
+                let (should_scroll, bottom_margin) = {
+                    let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+                    g.pending_wrap = false;
+                    (g.cursor_row >= g.bottom_margin, g.bottom_margin)
+                };
+
+                if should_scroll {
+                    let evicted = {
+                        let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+                        g.scroll_up(1, style, self.row_pool)
+                    };
+                    if !is_alt {
+                        for row in evicted {
+                            self.scrollback.push(row, self.styles, self.graphemes);
+                            self.damage.add_scroll(-1);
+                        }
+                    }
+                } else {
+                    let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+                    g.cursor_row = (g.cursor_row + 1).min(bottom_margin);
+                }
+                self.damage.cursor_moved = true;
+            }
+
+            // ESC E: NEL (Next Line)
+            ([], b'E') => {
+                let (should_scroll, bottom_margin) = {
+                    let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+                    g.cursor_col = 0;
+                    g.pending_wrap = false;
+                    (g.cursor_row >= g.bottom_margin, g.bottom_margin)
+                };
+
+                if should_scroll {
+                    let evicted = {
+                        let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+                        g.scroll_up(1, style, self.row_pool)
+                    };
+                    if !is_alt {
+                        for row in evicted {
+                            self.scrollback.push(row, self.styles, self.graphemes);
+                            self.damage.add_scroll(-1);
+                        }
+                    }
+                } else {
+                    let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+                    g.cursor_row = (g.cursor_row + 1).min(bottom_margin);
+                }
+                self.damage.cursor_moved = true;
+            }
+
             // ESC H: HTS (Horizontal Tab Set)
             ([], b'H') => {
                 let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
@@ -216,6 +306,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
             ([], b'M') => {
                 let (should_scroll, top_margin) = {
                     let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+                    g.pending_wrap = false;
                     (g.cursor_row <= g.top_margin, g.top_margin)
                 };
 
@@ -227,6 +318,18 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
                     g.cursor_row = g.cursor_row.saturating_sub(1).max(top_margin);
                 }
                 self.damage.cursor_moved = true;
+            }
+
+            // ESC =: Keypad Application Mode (DECKPAM)
+            ([], b'=') => {
+                self.modes.insert(Modes::DECKPAM);
+                self.sink.effect(Effect::ModeChanged(*self.modes));
+            }
+
+            // ESC >: Keypad Numeric Mode (DECKPNM)
+            ([], b'>') => {
+                self.modes.remove(Modes::DECKPAM);
+                self.sink.effect(Effect::ModeChanged(*self.modes));
             }
 
             // ESC c: RIS (Reset to Initial State)
@@ -290,19 +393,26 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
         }
     }
 
-    fn csi_dispatch(
-        &mut self,
-        params: &Params,
-        intermediates: &[u8],
-        _ignore: bool,
-        action: char,
-    ) {
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
+        self.in_ground = true;
+        if intermediates.is_empty() && action == 'm' {
+            self.handle_sgr(params);
+            return;
+        }
         let style = self.current_style_id;
         let modes = *self.modes;
         let is_alt = self.is_alt_screen;
 
-        // Flatten first subparameter of each param into a simple vector for standard CSI handling
-        let p_vec: Vec<u16> = params.iter().map(|slice| slice.first().copied().unwrap_or(0)).collect();
+        // Flatten first subparameter of each param into a stack array (zero heap alloc)
+        let mut p_arr = [0u16; 16];
+        let mut p_len = 0usize;
+        for slice in params.iter() {
+            if p_len < p_arr.len() {
+                p_arr[p_len] = slice.first().copied().unwrap_or(0);
+                p_len += 1;
+            }
+        }
+        let p_vec = &p_arr[..p_len];
         let get_p = |idx: usize, def: u16| -> u16 {
             p_vec.get(idx).copied().filter(|&x| x > 0).unwrap_or(def)
         };
@@ -362,8 +472,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
             ([], 'G') | ([], '`') => {
                 let col = get_p(0, 1).saturating_sub(1);
                 let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
-                g.cursor_col = col.min(g.cols.saturating_sub(1));
-                g.pending_wrap = false;
+                g.set_cursor_col(col, modes);
                 self.damage.cursor_moved = true;
             }
 
@@ -412,11 +521,9 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
             ([], 'L') => {
                 let n = get_p(0, 1);
                 let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
-                let top = g.cursor_row;
-                let bottom = g.bottom_margin;
-                if top <= bottom {
+                if g.cursor_row >= g.top_margin && g.cursor_row <= g.bottom_margin {
                     let orig_top = g.top_margin;
-                    g.top_margin = top;
+                    g.top_margin = g.cursor_row;
                     g.scroll_down(n, style, self.row_pool);
                     let g2 = active_grid_mut(is_alt, self.grid, self.alt_grid);
                     g2.top_margin = orig_top;
@@ -427,12 +534,16 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
             // DL: Delete Line
             ([], 'M') => {
                 let n = get_p(0, 1);
-                let (top, bottom, orig_top) = {
+                let (in_margins, top, orig_top) = {
                     let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
-                    (g.cursor_row, g.bottom_margin, g.top_margin)
+                    (
+                        g.cursor_row >= g.top_margin && g.cursor_row <= g.bottom_margin,
+                        g.cursor_row,
+                        g.top_margin,
+                    )
                 };
 
-                if top <= bottom {
+                if in_margins {
                     {
                         let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
                         g.top_margin = top;
@@ -543,8 +654,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
             ([], 'd') => {
                 let row = get_p(0, 1).saturating_sub(1);
                 let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
-                g.cursor_row = row.min(g.num_rows.saturating_sub(1));
-                g.pending_wrap = false;
+                g.set_cursor_row(row, modes);
                 self.damage.cursor_moved = true;
             }
 
@@ -570,7 +680,9 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
                 let bottom = if p_vec.len() > 1 && p_vec[1] > 0 {
                     p_vec[1] - 1
                 } else {
-                    active_grid_mut(is_alt, self.grid, self.alt_grid).num_rows.saturating_sub(1)
+                    active_grid_mut(is_alt, self.grid, self.alt_grid)
+                        .num_rows
+                        .saturating_sub(1)
                 };
                 let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
                 g.set_scroll_region(top, bottom, modes);
@@ -591,7 +703,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
 
             // SM / DECSET: Set Mode
             ([], 'h') => {
-                for &p in &p_vec {
+                for &p in p_vec {
                     match p {
                         4 => self.modes.insert(Modes::INSERT),
                         20 => self.modes.insert(Modes::LINE_FEED_NEW_LINE),
@@ -602,7 +714,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
             }
 
             ([b'?'], 'h') => {
-                for &p in &p_vec {
+                for &p in p_vec {
                     match p {
                         1 => self.modes.insert(Modes::DECCKM),
                         5 => self.modes.insert(Modes::REVERSE_VIDEO),
@@ -651,7 +763,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
 
             // RM / DECRST: Reset Mode
             ([], 'l') => {
-                for &p in &p_vec {
+                for &p in p_vec {
                     match p {
                         4 => self.modes.remove(Modes::INSERT),
                         20 => self.modes.remove(Modes::LINE_FEED_NEW_LINE),
@@ -662,7 +774,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
             }
 
             ([b'?'], 'l') => {
-                for &p in &p_vec {
+                for &p in p_vec {
                     match p {
                         1 => self.modes.remove(Modes::DECCKM),
                         5 => self.modes.remove(Modes::REVERSE_VIDEO),
@@ -686,7 +798,8 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
                             if self.is_alt_screen {
                                 self.is_alt_screen = false;
                                 self.modes.remove(Modes::ALT_SCREEN);
-                                let (restored_style, new_modes) = self.grid.restore_cursor(*self.modes);
+                                let (restored_style, new_modes) =
+                                    self.grid.restore_cursor(*self.modes);
                                 self.current_style_id = restored_style;
                                 *self.modes = new_modes;
                                 self.damage.mark_all();
@@ -772,14 +885,78 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
                     // Status report: OK
                     self.sink.write_back(b"\x1b[0n");
                 } else if p == 6 {
-                    // Cursor Position Report
+                    // Cursor Position Report (respecting Origin Mode)
                     let (row, col) = {
                         let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
-                        (g.cursor_row + 1, g.cursor_col + 1)
+                        if g.is_origin(modes) {
+                            (
+                                g.cursor_row.saturating_sub(g.top_margin) + 1,
+                                g.cursor_col.saturating_sub(g.left_margin) + 1,
+                            )
+                        } else {
+                            (g.cursor_row + 1, g.cursor_col + 1)
+                        }
                     };
                     let reply = format!("\x1b[{};{}R", row, col);
                     self.sink.write_back(reply.as_bytes());
                 }
+            }
+
+            // ANSI.SYS / xterm Save Cursor: CSI s
+            ([], 's') => {
+                let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+                g.save_cursor(style, modes);
+            }
+
+            // ANSI.SYS / xterm Restore Cursor: CSI u
+            ([], 'u') => {
+                let (restored_style, new_modes) = {
+                    let g = active_grid_mut(is_alt, self.grid, self.alt_grid);
+                    g.restore_cursor(modes)
+                };
+                self.current_style_id = restored_style;
+                if let Some(s) = self.styles.get(restored_style) {
+                    self.current_style = *s;
+                }
+                *self.modes = new_modes;
+                self.damage.cursor_moved = true;
+            }
+
+            // DECRQM: Request Mode (CSI ? Pd $ p or CSI Pa $ p)
+            ([b'?', b'$'], 'p') => {
+                let p = p_vec.first().copied().unwrap_or(0);
+                let status = match p {
+                    1 => mode_status(self.modes.contains(Modes::DECCKM)),
+                    5 => mode_status(self.modes.contains(Modes::REVERSE_VIDEO)),
+                    6 => mode_status(self.modes.contains(Modes::ORIGIN)),
+                    7 => mode_status(self.modes.contains(Modes::AUTOWRAP)),
+                    9 => mode_status(self.modes.contains(Modes::MOUSE_X10)),
+                    25 => mode_status(self.modes.contains(Modes::CURSOR_VISIBLE)),
+                    47 | 1047 | 1049 => mode_status(self.is_alt_screen),
+                    1000 => mode_status(self.modes.contains(Modes::MOUSE_NORMAL)),
+                    1002 => mode_status(self.modes.contains(Modes::MOUSE_BUTTON)),
+                    1003 => mode_status(self.modes.contains(Modes::MOUSE_ANY)),
+                    1004 => mode_status(self.modes.contains(Modes::FOCUS_EVENTS)),
+                    1006 => mode_status(self.modes.contains(Modes::MOUSE_SGR)),
+                    1007 => mode_status(self.modes.contains(Modes::ALT_SCROLL)),
+                    1016 => mode_status(self.modes.contains(Modes::MOUSE_SGR_PIXELS)),
+                    2004 => mode_status(self.modes.contains(Modes::BRACKETED_PASTE)),
+                    2026 => mode_status(self.modes.contains(Modes::SYNC_OUTPUT)),
+                    _ => 0, // Unrecognized
+                };
+                let reply = format!("\x1b[?{};{}$y", p, status);
+                self.sink.write_back(reply.as_bytes());
+            }
+
+            ([b'$'], 'p') => {
+                let p = p_vec.first().copied().unwrap_or(0);
+                let status = match p {
+                    4 => mode_status(self.modes.contains(Modes::INSERT)),
+                    20 => mode_status(self.modes.contains(Modes::LINE_FEED_NEW_LINE)),
+                    _ => 0, // Unrecognized
+                };
+                let reply = format!("\x1b[{};{}$y", p, status);
+                self.sink.write_back(reply.as_bytes());
             }
 
             // XTWINOPS: Window operations
@@ -816,6 +993,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+        self.in_ground = bell_terminated;
         let mut link = self.current_style.link;
         let line = self.current_line();
 
@@ -852,6 +1030,7 @@ impl<'a, S: EffectSink> Perform for ParserHandler<'a, S> {
     }
 
     fn unhook(&mut self) {
+        self.in_ground = true;
         if self.dcs_active {
             // XTGETTCAP responses: DCS + q <ptyp> ST
             if let Ok(s) = std::str::from_utf8(&self.dcs_bytes) {
@@ -1013,5 +1192,14 @@ fn parse_color<'a>(subparams: &[u16], iter: &mut impl Iterator<Item = &'a [u16]>
         Some(Color::Rgb(r, g, b))
     } else {
         None
+    }
+}
+
+#[inline]
+fn mode_status(set: bool) -> u8 {
+    if set {
+        1
+    } else {
+        2
     }
 }

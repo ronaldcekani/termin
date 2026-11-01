@@ -84,21 +84,21 @@ pub fn extract_mods(flags: NSEventModifierFlags) -> Mods {
 /// Translate a macOS virtual keycode to a `NamedKey` if it is a recognized special key.
 pub fn translate_keycode(code: u16) -> Option<NamedKey> {
     match code {
-        0x24 | 0x4C => Some(NamedKey::Enter),     // Return or Keypad Enter
-        0x30 => Some(NamedKey::Tab),               // Tab
-        0x31 => Some(NamedKey::Space),             // Space
-        0x33 => Some(NamedKey::Backspace),         // Backspace
-        0x35 => Some(NamedKey::Escape),            // Escape
-        0x75 => Some(NamedKey::Delete),            // Forward Delete
-        0x7B => Some(NamedKey::ArrowLeft),         // Left
-        0x7C => Some(NamedKey::ArrowRight),        // Right
-        0x7D => Some(NamedKey::ArrowDown),         // Down
-        0x7E => Some(NamedKey::ArrowUp),           // Up
-        0x73 => Some(NamedKey::Home),              // Home
-        0x77 => Some(NamedKey::End),               // End
-        0x74 => Some(NamedKey::PageUp),            // Page Up
-        0x79 => Some(NamedKey::PageDown),          // Page Down
-        0x72 => Some(NamedKey::Insert),            // Help / Insert
+        0x24 | 0x4C => Some(NamedKey::Enter), // Return or Keypad Enter
+        0x30 => Some(NamedKey::Tab),          // Tab
+        0x31 => Some(NamedKey::Space),        // Space
+        0x33 => Some(NamedKey::Backspace),    // Backspace
+        0x35 => Some(NamedKey::Escape),       // Escape
+        0x75 => Some(NamedKey::Delete),       // Forward Delete
+        0x7B => Some(NamedKey::ArrowLeft),    // Left
+        0x7C => Some(NamedKey::ArrowRight),   // Right
+        0x7D => Some(NamedKey::ArrowDown),    // Down
+        0x7E => Some(NamedKey::ArrowUp),      // Up
+        0x73 => Some(NamedKey::Home),         // Home
+        0x77 => Some(NamedKey::End),          // End
+        0x74 => Some(NamedKey::PageUp),       // Page Up
+        0x79 => Some(NamedKey::PageDown),     // Page Down
+        0x72 => Some(NamedKey::Insert),       // Help / Insert
         0x7A => Some(NamedKey::F(1)),
         0x78 => Some(NamedKey::F(2)),
         0x63 => Some(NamedKey::F(3)),
@@ -304,24 +304,54 @@ mod tests {
 
     #[test]
     fn test_private_unicode_translation() {
-        assert_eq!(translate_private_unicode('\u{F700}'), Some(NamedKey::ArrowUp));
-        assert_eq!(translate_private_unicode('\u{F701}'), Some(NamedKey::ArrowDown));
+        assert_eq!(
+            translate_private_unicode('\u{F700}'),
+            Some(NamedKey::ArrowUp)
+        );
+        assert_eq!(
+            translate_private_unicode('\u{F701}'),
+            Some(NamedKey::ArrowDown)
+        );
         assert_eq!(translate_private_unicode('\u{F704}'), Some(NamedKey::F(1)));
         assert_eq!(translate_private_unicode('\u{F705}'), Some(NamedKey::F(2)));
-        assert_eq!(translate_private_unicode('\u{F728}'), Some(NamedKey::Delete));
+        assert_eq!(
+            translate_private_unicode('\u{F728}'),
+            Some(NamedKey::Delete)
+        );
         assert_eq!(translate_private_unicode('a'), None);
     }
 
     #[test]
     fn test_selector_mapping() {
-        assert_eq!(selector_to_named_key("insertNewline:"), Some(NamedKey::Enter));
+        assert_eq!(
+            selector_to_named_key("insertNewline:"),
+            Some(NamedKey::Enter)
+        );
         assert_eq!(selector_to_named_key("insertTab:"), Some(NamedKey::Tab));
-        assert_eq!(selector_to_named_key("deleteBackward:"), Some(NamedKey::Backspace));
-        assert_eq!(selector_to_named_key("cancelOperation:"), Some(NamedKey::Escape));
-        assert_eq!(selector_to_named_key("moveLeft:"), Some(NamedKey::ArrowLeft));
-        assert_eq!(selector_to_named_key("moveRight:"), Some(NamedKey::ArrowRight));
-        assert_eq!(selector_to_named_key("moveToBeginningOfLine:"), Some(NamedKey::Home));
-        assert_eq!(selector_to_named_key("moveToEndOfLine:"), Some(NamedKey::End));
+        assert_eq!(
+            selector_to_named_key("deleteBackward:"),
+            Some(NamedKey::Backspace)
+        );
+        assert_eq!(
+            selector_to_named_key("cancelOperation:"),
+            Some(NamedKey::Escape)
+        );
+        assert_eq!(
+            selector_to_named_key("moveLeft:"),
+            Some(NamedKey::ArrowLeft)
+        );
+        assert_eq!(
+            selector_to_named_key("moveRight:"),
+            Some(NamedKey::ArrowRight)
+        );
+        assert_eq!(
+            selector_to_named_key("moveToBeginningOfLine:"),
+            Some(NamedKey::Home)
+        );
+        assert_eq!(
+            selector_to_named_key("moveToEndOfLine:"),
+            Some(NamedKey::End)
+        );
         assert_eq!(selector_to_named_key("unknownSelector:"), None);
     }
 

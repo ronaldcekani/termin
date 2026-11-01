@@ -1,8 +1,8 @@
 //! Error types for Termin IPC protocol and client operations.
 
+use crate::protocol::ResponseError;
 use std::fmt;
 use std::io;
-use crate::protocol::ResponseError;
 
 /// Maximum line length allowed in IPC protocol (1 MiB).
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
@@ -30,7 +30,11 @@ impl fmt::Display for IpcError {
             Self::Io(e) => write!(f, "IPC I/O error: {}", e),
             Self::Json(e) => write!(f, "IPC JSON error: {}", e),
             Self::Rpc(err) => write!(f, "IPC RPC error [{}]: {}", err.code, err.message),
-            Self::LineTooLong => write!(f, "IPC line length exceeded limit of {} bytes", MAX_LINE_BYTES),
+            Self::LineTooLong => write!(
+                f,
+                "IPC line length exceeded limit of {} bytes",
+                MAX_LINE_BYTES
+            ),
             Self::NotRunning => write!(f, "Termin daemon is not running"),
             Self::Protocol(msg) => write!(f, "IPC protocol error: {}", msg),
         }

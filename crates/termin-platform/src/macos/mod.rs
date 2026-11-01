@@ -15,7 +15,7 @@ pub mod wake;
 pub mod window;
 
 use crate::{AppHandler, Appearance, Platform};
-use app::{AppState, AppDelegate, STATE};
+use app::{AppDelegate, AppState, STATE};
 use input::OptionAsAlt;
 use wake::WakeSource;
 
@@ -40,7 +40,8 @@ impl Platform for MacPlatform {
 
         STATE.with(|cell| {
             *cell.borrow_mut() = Some(AppState {
-                handler: Box::new(handler),
+                handler: Some(Box::new(handler)),
+                pending_events: std::collections::VecDeque::new(),
                 windows: FxHashMap::default(),
                 window_flags: FxHashMap::default(),
                 active_window: None,

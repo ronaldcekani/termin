@@ -2,8 +2,8 @@
 //!
 //! See `docs/specs/persistence.md §3`.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Current session snapshot format version.
 pub const SNAPSHOT_VERSION: u32 = 1;
@@ -67,12 +67,7 @@ impl TreeSnapshot {
         Self::Pane { pane }
     }
 
-    pub fn split(
-        split: impl Into<String>,
-        ratio: f32,
-        a: TreeSnapshot,
-        b: TreeSnapshot,
-    ) -> Self {
+    pub fn split(split: impl Into<String>, ratio: f32, a: TreeSnapshot, b: TreeSnapshot) -> Self {
         Self::Split {
             split: split.into(),
             ratio,

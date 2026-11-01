@@ -2,9 +2,7 @@
 //!
 //! See `docs/specs/terminal-core.md §4`, `§5`, and `§12`.
 
-use termin_vt::{
-    Attrs, Color, CursorShape, Effect, EffectSink, Modes, Terminal, TerminalConfig,
-};
+use termin_vt::{Attrs, Color, CursorShape, Effect, EffectSink, Modes, Terminal, TerminalConfig};
 
 #[derive(Default)]
 struct TestSink {
@@ -106,20 +104,32 @@ fn test_sgr_extended_colors_and_styles() {
 
     // SGR 256 color: 38;5;123
     term.advance(b"\x1b[38;5;123mColor\x1b[0m", &mut sink);
-    let cell = &term.view(termin_vt::ScrollPos::Bottom).next().unwrap().cells[0];
+    let cell = &term
+        .view(termin_vt::ScrollPos::Bottom)
+        .next()
+        .unwrap()
+        .cells[0];
     let style = term.styles().get(cell.style).unwrap();
     assert_eq!(style.fg, Color::Indexed(123));
 
     // SGR TrueColor RGB: 38;2;10;20;30 and colon style 48:2::40:50:60
     term.advance(b"\x1b[38;2;10;20;30;48:2::40:50:60mRGB\x1b[0m", &mut sink);
-    let cell_rgb = &term.view(termin_vt::ScrollPos::Bottom).next().unwrap().cells[5];
+    let cell_rgb = &term
+        .view(termin_vt::ScrollPos::Bottom)
+        .next()
+        .unwrap()
+        .cells[5];
     let style_rgb = term.styles().get(cell_rgb.style).unwrap();
     assert_eq!(style_rgb.fg, Color::Rgb(10, 20, 30));
     assert_eq!(style_rgb.bg, Color::Rgb(40, 50, 60));
 
     // Underline styles: curly underline 4:3 and underline color 58;2;255;0;0
     term.advance(b"\x1b[4:3;58;2;255;0;0mCurly\x1b[0m", &mut sink);
-    let cell_ul = &term.view(termin_vt::ScrollPos::Bottom).next().unwrap().cells[8];
+    let cell_ul = &term
+        .view(termin_vt::ScrollPos::Bottom)
+        .next()
+        .unwrap()
+        .cells[8];
     let style_ul = term.styles().get(cell_ul.style).unwrap();
     assert!(style_ul.attrs.contains(Attrs::CURLY_UNDERLINE));
     assert_eq!(style_ul.ul_color, Color::Rgb(255, 0, 0));
@@ -148,7 +158,12 @@ fn test_scroll_regions_and_scrolling() {
     term.advance(b"\x1b[1S", &mut sink);
 
     let view: Vec<_> = term.view(termin_vt::ScrollPos::Bottom).collect();
-    let row1: String = view[0].cells.iter().take(11).filter_map(|c| char::from_u32(c.ch)).collect();
+    let row1: String = view[0]
+        .cells
+        .iter()
+        .take(11)
+        .filter_map(|c| char::from_u32(c.ch))
+        .collect();
     // Header Line must remain intact
     assert_eq!(row1, "Header Line");
 }
@@ -186,7 +201,10 @@ fn test_device_reports() {
 
     // XTWINOPS 14 (window pixels), 16 (cell pixels), 18 (chars)
     term.advance(b"\x1b[14t", &mut sink);
-    assert_eq!(sink.writes, format!("\x1b[4;{};{}t", 24 * 20, 80 * 10).as_bytes());
+    assert_eq!(
+        sink.writes,
+        format!("\x1b[4;{};{}t", 24 * 20, 80 * 10).as_bytes()
+    );
     sink.writes.clear();
 
     term.advance(b"\x1b[16t", &mut sink);
@@ -210,29 +228,53 @@ fn test_osc_handling() {
 
     // OSC 0/1/2 Title
     term.advance(b"\x1b]0;Termin Window\x1b\\", &mut sink);
-    assert!(sink.effects.iter().any(|e| matches!(e, Effect::Title(t) if &**t == "Termin Window")));
+    assert!(sink
+        .effects
+        .iter()
+        .any(|e| matches!(e, Effect::Title(t) if &**t == "Termin Window")));
 
     // OSC 7 CWD
-    term.advance(b"\x1b]7;file://localhost/Users/alice/projects%20dir\x1b\\", &mut sink);
-    assert!(sink.effects.iter().any(|e| matches!(e, Effect::Cwd(p) if &**p == "/Users/alice/projects dir")));
+    term.advance(
+        b"\x1b]7;file://localhost/Users/alice/projects%20dir\x1b\\",
+        &mut sink,
+    );
+    assert!(sink
+        .effects
+        .iter()
+        .any(|e| matches!(e, Effect::Cwd(p) if &**p == "/Users/alice/projects dir")));
 
     // OSC 8 Hyperlinks
-    term.advance(b"\x1b]8;id=link1;https://example.com\x1b\\Link Text\x1b]8;;\x1b\\", &mut sink);
-    let cell_link = &term.view(termin_vt::ScrollPos::Bottom).next().unwrap().cells[0];
+    term.advance(
+        b"\x1b]8;id=link1;https://example.com\x1b\\Link Text\x1b]8;;\x1b\\",
+        &mut sink,
+    );
+    let cell_link = &term
+        .view(termin_vt::ScrollPos::Bottom)
+        .next()
+        .unwrap()
+        .cells[0];
     assert!(cell_link.style > 0);
     let style = term.styles().get(cell_link.style).unwrap();
     assert!(style.link > 0);
 
     // OSC 9 & 777 Notifications
     term.advance(b"\x1b]9;Alert message\x1b\\", &mut sink);
-    assert!(sink.effects.iter().any(|e| matches!(e, Effect::Notify { body, .. } if &**body == "Alert message")));
+    assert!(sink
+        .effects
+        .iter()
+        .any(|e| matches!(e, Effect::Notify { body, .. } if &**body == "Alert message")));
 
     term.advance(b"\x1b]777;notify;Build;Done\x1b\\", &mut sink);
-    assert!(sink.effects.iter().any(|e| matches!(e, Effect::Notify { title, body } if &**title == "Build" && &**body == "Done")));
+    assert!(sink.effects.iter().any(
+        |e| matches!(e, Effect::Notify { title, body } if &**title == "Build" && &**body == "Done")
+    ));
 
     // OSC 52 Clipboard write
     term.advance(b"\x1b]52;c;SGVsbG8=\x1b\\", &mut sink);
-    assert!(sink.effects.iter().any(|e| matches!(e, Effect::ClipboardSet(b) if &**b == b"Hello")));
+    assert!(sink
+        .effects
+        .iter()
+        .any(|e| matches!(e, Effect::ClipboardSet(b) if &**b == b"Hello")));
 }
 
 #[test]

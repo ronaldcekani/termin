@@ -5,8 +5,8 @@
 //!
 //! See `docs/architecture.md §3.5` and `docs/specs/text-and-rendering.md §2.7`.
 
-use std::collections::HashMap;
 use rustc_hash::FxHashMap;
+use std::collections::HashMap;
 
 use crate::atlas::ShelfAtlas;
 use crate::{AtlasKind, AtlasUpload, FontBackend, FontId, GlyphRef, RasterBuf, RasterInfo};
@@ -44,6 +44,9 @@ pub struct GlyphCache<B: FontBackend> {
     raster_buf: RasterBuf,
     /// Queued atlas texture uploads.
     pending_uploads: Vec<AtlasUpload>,
+    /// Bumped whenever cached glyph slots are invalidated (`clear`), so holders of
+    /// atlas coordinates (row caches) know to rebuild.
+    pub epoch: u64,
 }
 
 impl<B: FontBackend> GlyphCache<B> {
@@ -58,6 +61,7 @@ impl<B: FontBackend> GlyphCache<B> {
             staging_buf: Vec::new(),
             raster_buf: RasterBuf::default(),
             pending_uploads: Vec::new(),
+            epoch: 0,
         }
     }
 
@@ -105,6 +109,7 @@ impl<B: FontBackend> GlyphCache<B> {
 
     /// Clear all cached glyphs and atlas textures (e.g. on font size change or full atlas).
     pub fn clear(&mut self) {
+        self.epoch += 1;
         self.mask_atlas.clear();
         if let Some(ref mut ca) = self.color_atlas {
             ca.clear();

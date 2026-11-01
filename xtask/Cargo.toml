@@ -10,3 +10,7 @@ description = "Build, size verification, and benchmark tasks for Termin"
 [dependencies]
 toml.workspace = true
 serde.workspace = true
+termin-core.workspace = true
+termin-vt.workspace = true
+termin-editor.workspace = true
+termin-render.workspace = true

@@ -2,11 +2,11 @@
 //!
 //! See `docs/specs/input-editor.md §4.3`.
 
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::editor::Candidate;
 use crate::history::HistoryIndex;
@@ -87,7 +87,9 @@ pub fn generate_filepaths(cwd: &str, token: &str, folders_only: bool) -> Vec<Can
 
         if !prefix.is_empty() {
             let name_lower = name_str.to_lowercase();
-            if !name_lower.starts_with(&prefix_lower) && !is_fuzzy_subsequence(&prefix_lower, &name_lower) {
+            if !name_lower.starts_with(&prefix_lower)
+                && !is_fuzzy_subsequence(&prefix_lower, &name_lower)
+            {
                 continue;
             }
         }
@@ -427,13 +429,17 @@ pub fn parse_git_status_porcelain_z(bytes: &[u8]) -> Vec<Candidate> {
         let status_str = String::from_utf8_lossy(status_bytes).to_string();
         i += 3; // skip status and space
 
-        let path_end = memchr::memchr(b'\0', &bytes[i..]).map(|pos| i + pos).unwrap_or(len);
+        let path_end = memchr::memchr(b'\0', &bytes[i..])
+            .map(|pos| i + pos)
+            .unwrap_or(len);
         let path = String::from_utf8_lossy(&bytes[i..path_end]).to_string();
         i = if path_end < len { path_end + 1 } else { len };
 
         // For renames (R), next field is the original path
         if status_bytes[0] == b'R' && i < len {
-            let orig_end = memchr::memchr(b'\0', &bytes[i..]).map(|pos| i + pos).unwrap_or(len);
+            let orig_end = memchr::memchr(b'\0', &bytes[i..])
+                .map(|pos| i + pos)
+                .unwrap_or(len);
             i = if orig_end < len { orig_end + 1 } else { len };
         }
 
@@ -580,7 +586,12 @@ fn expand_tilde(path: &str) -> String {
 fn escape_path(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     for c in path.chars() {
-        if c.is_whitespace() || matches!(c, '(' | ')' | '[' | ']' | '{' | '}' | '&' | ';' | '*' | '?' | '$') {
+        if c.is_whitespace()
+            || matches!(
+                c,
+                '(' | ')' | '[' | ']' | '{' | '}' | '&' | ';' | '*' | '?' | '$'
+            )
+        {
             out.push('\\');
         }
         out.push(c);

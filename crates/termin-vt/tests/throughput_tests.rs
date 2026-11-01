@@ -44,13 +44,19 @@ fn test_throughput_ascii_and_sgr() {
 
     let mb = payload.len() as f64 / (1024.0 * 1024.0);
     let mb_per_sec = mb / elapsed.as_secs_f64();
-    println!("ASCII throughput: {:.2} MB/s ({:.2} MB in {:.3} s)", mb_per_sec, mb, elapsed.as_secs_f64());
+    println!(
+        "ASCII throughput: {:.2} MB/s ({:.2} MB in {:.3} s)",
+        mb_per_sec,
+        mb,
+        elapsed.as_secs_f64()
+    );
 
     // Prepare SGR colored data
     let mut sgr_payload = Vec::with_capacity(num_lines * 50);
     for i in 0..num_lines {
         let fg = 31 + (i % 7);
-        sgr_payload.extend_from_slice(format!("\x1b[{}mcolored text {:05}\x1b[0m\r\n", fg, i).as_bytes());
+        sgr_payload
+            .extend_from_slice(format!("\x1b[{}mcolored text {:05}\x1b[0m\r\n", fg, i).as_bytes());
     }
 
     let start_sgr = Instant::now();
@@ -59,5 +65,10 @@ fn test_throughput_ascii_and_sgr() {
 
     let mb_sgr = sgr_payload.len() as f64 / (1024.0 * 1024.0);
     let mb_sgr_per_sec = mb_sgr / elapsed_sgr.as_secs_f64();
-    println!("SGR throughput: {:.2} MB/s ({:.2} MB in {:.3} s)", mb_sgr_per_sec, mb_sgr, elapsed_sgr.as_secs_f64());
+    println!(
+        "SGR throughput: {:.2} MB/s ({:.2} MB in {:.3} s)",
+        mb_sgr_per_sec,
+        mb_sgr,
+        elapsed_sgr.as_secs_f64()
+    );
 }

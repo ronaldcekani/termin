@@ -2,9 +2,9 @@
 //!
 //! See `docs/specs/input-editor.md §4`.
 
-use std::ops::Range;
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 use rustc_hash::FxHashSet;
+use std::ops::Range;
 
 use crate::editor::Candidate;
 use crate::generators::*;
@@ -67,7 +67,8 @@ pub fn complete(buffer: &str, cursor: usize, ctx: &CompletionContext) -> Complet
     let (_, segment_tokens) = active_command_segment(&tokens, cursor);
 
     // Find the token at cursor (or trailing empty token)
-    let (cursor_token, token_prefix, replace_range) = find_cursor_token(buffer, &segment_tokens, cursor);
+    let (cursor_token, token_prefix, replace_range) =
+        find_cursor_token(buffer, &segment_tokens, cursor);
 
     // 2. Identify the command in this segment
     let cmd_token = segment_tokens
@@ -365,10 +366,7 @@ fn run_generator(
     }
 }
 
-fn rank_and_dedupe_candidates(
-    candidates: Vec<Candidate>,
-    token_prefix: &str,
-) -> Vec<Candidate> {
+fn rank_and_dedupe_candidates(candidates: Vec<Candidate>, token_prefix: &str) -> Vec<Candidate> {
     if candidates.is_empty() {
         return Vec::new();
     }

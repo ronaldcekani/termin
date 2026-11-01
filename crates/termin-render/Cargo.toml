@@ -13,6 +13,14 @@ termin-text.workspace = true
 # termin-platform.workspace = true
 log.workspace = true
 
+[features]
+default = []
+alloc-count = []
+
+[[bench]]
+name = "render_bench"
+harness = false
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 block2.workspace = true

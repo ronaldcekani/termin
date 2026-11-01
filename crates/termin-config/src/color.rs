@@ -21,7 +21,11 @@ impl fmt::Display for ColorParseError {
             Self::Empty => write!(f, "color string cannot be empty"),
             Self::InvalidHex(s) => write!(f, "invalid hex characters in color '{}'", s),
             Self::InvalidLength(len) => {
-                write!(f, "invalid hex color length {}, expected 3, 4, 6, or 8", len)
+                write!(
+                    f,
+                    "invalid hex color length {}, expected 3, 4, 6, or 8",
+                    len
+                )
             }
             Self::InvalidPercentage(s) => write!(f, "invalid alpha percentage '{}'", s),
         }
@@ -62,12 +66,7 @@ pub fn parse_color(s: &str) -> Result<Rgba, ColorParseError> {
             let r = parse_hex_digit(hex.as_bytes()[0])?;
             let g = parse_hex_digit(hex.as_bytes()[1])?;
             let b = parse_hex_digit(hex.as_bytes()[2])?;
-            Ok(Rgba::from_rgba(
-                r * 17,
-                g * 17,
-                b * 17,
-                255,
-            ))
+            Ok(Rgba::from_rgba(r * 17, g * 17, b * 17, 255))
         }
         4 => {
             // #RGBA -> #RRGGBBAA
@@ -75,12 +74,7 @@ pub fn parse_color(s: &str) -> Result<Rgba, ColorParseError> {
             let g = parse_hex_digit(hex.as_bytes()[1])?;
             let b = parse_hex_digit(hex.as_bytes()[2])?;
             let a = parse_hex_digit(hex.as_bytes()[3])?;
-            Ok(Rgba::from_rgba(
-                r * 17,
-                g * 17,
-                b * 17,
-                a * 17,
-            ))
+            Ok(Rgba::from_rgba(r * 17, g * 17, b * 17, a * 17))
         }
         6 => {
             // #RRGGBB
@@ -119,13 +113,7 @@ pub fn format_hex_color(c: Rgba) -> String {
     if c.a() == 255 {
         format!("#{:02X}{:02X}{:02X}", c.r(), c.g(), c.b())
     } else {
-        format!(
-            "#{:02X}{:02X}{:02X}{:02X}",
-            c.r(),
-            c.g(),
-            c.b(),
-            c.a()
-        )
+        format!("#{:02X}{:02X}{:02X}{:02X}", c.r(), c.g(), c.b(), c.a())
     }
 }
 

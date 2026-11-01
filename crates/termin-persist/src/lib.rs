@@ -66,7 +66,8 @@ mod tests {
   }]
 }"#;
 
-        let snapshot: Snapshot = serde_json::from_str(json_text).expect("deserialize valid spec schema");
+        let snapshot: Snapshot =
+            serde_json::from_str(json_text).expect("deserialize valid spec schema");
         assert_eq!(snapshot.version, 1);
         assert_eq!(snapshot.saved_at, 1793476469);
         assert_eq!(snapshot.focused_window, 0);
@@ -99,7 +100,11 @@ mod tests {
                     _ => panic!("expected pane in a"),
                 }
                 match b.as_ref() {
-                    TreeSnapshot::Split { split: s2, ratio: r2, .. } => {
+                    TreeSnapshot::Split {
+                        split: s2,
+                        ratio: r2,
+                        ..
+                    } => {
                         assert_eq!(s2, "down");
                         assert!((r2 - 0.6).abs() < 1e-6);
                     }
@@ -117,7 +122,8 @@ mod tests {
 
     #[test]
     fn test_atomic_save_and_load() {
-        let temp_dir = std::env::temp_dir().join(format!("termin-test-persist-{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("termin-test-persist-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -140,7 +146,8 @@ mod tests {
 
     #[test]
     fn test_corrupted_file_recovery() {
-        let temp_dir = std::env::temp_dir().join(format!("termin-test-corrupt-{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("termin-test-corrupt-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -200,7 +207,8 @@ mod tests {
 
     #[test]
     fn test_state_file_atomic_save_load_and_corrupt() {
-        let temp_dir = std::env::temp_dir().join(format!("termin-test-state-{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("termin-test-state-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -208,9 +216,14 @@ mod tests {
         assert!(missing.is_none());
 
         let mut state = AppStateFile::default();
-        state.confirm_close_ignore.push("running_process".to_string());
+        state
+            .confirm_close_ignore
+            .push("running_process".to_string());
         state.last_seen_version = Some("0.1.0".to_string());
-        state.frecency.directories.push(FrecencyEntry::new("/tmp/proj", 10.5, 1793476469));
+        state
+            .frecency
+            .directories
+            .push(FrecencyEntry::new("/tmp/proj", 10.5, 1793476469));
 
         save_state(&temp_dir, &state).unwrap();
 
@@ -221,7 +234,9 @@ mod tests {
         let state_file = temp_dir.join("state.json");
         fs::write(&state_file, b"corrupted state json!").unwrap();
 
-        let recovered = load_state(&temp_dir).unwrap().expect("recovered default state");
+        let recovered = load_state(&temp_dir)
+            .unwrap()
+            .expect("recovered default state");
         assert_eq!(recovered, AppStateFile::default());
 
         let _ = fs::remove_dir_all(&temp_dir);

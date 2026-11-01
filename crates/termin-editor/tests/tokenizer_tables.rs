@@ -3,31 +3,46 @@ use termin_editor::{tokenize, CmdIdx, TokenKind};
 #[test]
 fn test_tokenizer_table_quotes() {
     let cases = [
-        ("echo 'single quoted'", vec![
-            (TokenKind::Command, "echo"),
-            (TokenKind::Whitespace, " "),
-            (TokenKind::String, "'single quoted'"),
-        ]),
-        ("echo \"double quoted\"", vec![
-            (TokenKind::Command, "echo"),
-            (TokenKind::Whitespace, " "),
-            (TokenKind::String, "\"double quoted\""),
-        ]),
-        ("echo \"escaped \\\" quote\"", vec![
-            (TokenKind::Command, "echo"),
-            (TokenKind::Whitespace, " "),
-            (TokenKind::String, "\"escaped \\\" quote\""),
-        ]),
-        ("echo 'unterminated", vec![
-            (TokenKind::Command, "echo"),
-            (TokenKind::Whitespace, " "),
-            (TokenKind::Error, "'unterminated"),
-        ]),
-        ("echo \"unterminated double", vec![
-            (TokenKind::Command, "echo"),
-            (TokenKind::Whitespace, " "),
-            (TokenKind::Error, "\"unterminated double"),
-        ]),
+        (
+            "echo 'single quoted'",
+            vec![
+                (TokenKind::Command, "echo"),
+                (TokenKind::Whitespace, " "),
+                (TokenKind::String, "'single quoted'"),
+            ],
+        ),
+        (
+            "echo \"double quoted\"",
+            vec![
+                (TokenKind::Command, "echo"),
+                (TokenKind::Whitespace, " "),
+                (TokenKind::String, "\"double quoted\""),
+            ],
+        ),
+        (
+            "echo \"escaped \\\" quote\"",
+            vec![
+                (TokenKind::Command, "echo"),
+                (TokenKind::Whitespace, " "),
+                (TokenKind::String, "\"escaped \\\" quote\""),
+            ],
+        ),
+        (
+            "echo 'unterminated",
+            vec![
+                (TokenKind::Command, "echo"),
+                (TokenKind::Whitespace, " "),
+                (TokenKind::Error, "'unterminated"),
+            ],
+        ),
+        (
+            "echo \"unterminated double",
+            vec![
+                (TokenKind::Command, "echo"),
+                (TokenKind::Whitespace, " "),
+                (TokenKind::Error, "\"unterminated double"),
+            ],
+        ),
     ];
 
     for (input, expected) in cases {

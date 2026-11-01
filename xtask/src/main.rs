@@ -6,6 +6,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub mod bench;
+pub mod bundle;
+pub mod corpus;
+pub mod mem;
+pub mod throughput;
+
 #[derive(serde::Deserialize)]
 struct Budgets {
     size: SizeBudgets,
@@ -21,31 +27,15 @@ struct SizeBudgets {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let subcommand = args.get(1).map(|s| s.as_str()).unwrap_or("help");
+    let sub_args = if args.len() > 2 { &args[2..] } else { &[] };
 
     match subcommand {
         "size" => run_size(),
-        "mem" => {
-            println!("xtask: 'mem' memory scenario benchmarking is scheduled for Phase 4.");
-        }
-        "bench" => {
-            println!("xtask: running criterion benchmarks...");
-            let status = Command::new("cargo")
-                .args(["bench", "--workspace"])
-                .status()
-                .expect("Failed to execute cargo bench");
-            if !status.success() {
-                std::process::exit(1);
-            }
-        }
-        "throughput" => {
-            println!("xtask: 'throughput' testing is scheduled for Phase 4.");
-        }
-        "corpus" => {
-            println!("xtask: 'corpus' generation is scheduled for Phase 1A.");
-        }
-        "bundle" => {
-            println!("xtask: 'bundle' macOS app assembly is scheduled for Phase 4B.");
-        }
+        "mem" => mem::run(sub_args),
+        "bench" => bench::run(sub_args),
+        "throughput" => throughput::run(sub_args),
+        "corpus" => corpus::run(sub_args),
+        "bundle" => bundle::run(sub_args),
         _ => {
             println!("Termin xtask runner");
             println!("Usage: cargo xtask <size|mem|bench|throughput|corpus|bundle>");
@@ -53,7 +43,7 @@ fn main() {
     }
 }
 
-fn project_root() -> PathBuf {
+pub fn project_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.parent().unwrap().to_path_buf()
 }

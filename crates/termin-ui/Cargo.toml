@@ -14,3 +14,6 @@ termin-text.workspace = true
 termin-render.workspace = true
 termin-editor.workspace = true
 termin-config.workspace = true
+rustc-hash.workspace = true
+unicode-width.workspace = true
+log.workspace = true

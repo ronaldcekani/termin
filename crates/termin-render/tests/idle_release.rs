@@ -1,9 +1,7 @@
 #![cfg(target_os = "macos")]
 
 use termin_core::Rgba;
-use termin_render::{
-    DrawList, Layer, MetalRenderer, OffscreenTarget, QuadInst, Renderer,
-};
+use termin_render::{DrawList, Layer, MetalRenderer, OffscreenTarget, QuadInst, Renderer};
 
 #[test]
 fn test_release_idle_resources() {

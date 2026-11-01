@@ -7,13 +7,13 @@
 
 pub mod ffi;
 
+use rustc_hash::FxHashMap;
 use std::collections::VecDeque;
 use std::ffi::c_void;
-use rustc_hash::FxHashMap;
 
 use crate::{
-    FontBackend, FontId, FontMetrics, FontSpec, GlyphRef,
-    RasterBuf, RasterInfo, ShapedGlyph, procedural,
+    procedural, FontBackend, FontId, FontMetrics, FontSpec, GlyphRef, RasterBuf, RasterInfo,
+    ShapedGlyph,
 };
 use ffi::*;
 
@@ -155,11 +155,7 @@ impl CoreTextBackend {
     fn create_faces(
         spec: &FontSpec,
         scale: f32,
-    ) -> (
-        [FontFace; 4],
-        Option<CTFontWrapper>,
-        Option<CTFontWrapper>,
-    ) {
+    ) -> ([FontFace; 4], Option<CTFontWrapper>, Option<CTFontWrapper>) {
         let size_pt = spec.size_pt.max(4.0) as CGFloat;
 
         // Base regular font
@@ -171,13 +167,25 @@ impl CoreTextBackend {
             unsafe { CFRelease(cf_name) };
             if f.is_null() {
                 // SAFETY: Fallback to system monospaced font if requested family was not found.
-                unsafe { CTFontCreateUIFontForLanguage(kCTFontUIFontUserFixedPitch, size_pt, std::ptr::null()) }
+                unsafe {
+                    CTFontCreateUIFontForLanguage(
+                        kCTFontUIFontUserFixedPitch,
+                        size_pt,
+                        std::ptr::null(),
+                    )
+                }
             } else {
                 f
             }
         } else {
             // SAFETY: Creating system monospaced font (SF Mono).
-            unsafe { CTFontCreateUIFontForLanguage(kCTFontUIFontUserFixedPitch, size_pt, std::ptr::null()) }
+            unsafe {
+                CTFontCreateUIFontForLanguage(
+                    kCTFontUIFontUserFixedPitch,
+                    size_pt,
+                    std::ptr::null(),
+                )
+            }
         };
 
         let base_font = if base_font.is_null() {
@@ -287,7 +295,9 @@ impl CoreTextBackend {
         };
 
         // SAFETY: Creating system fallback font using official CTFontCreateUIFontForLanguage API.
-        let last_raw = unsafe { CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, size_pt, std::ptr::null()) };
+        let last_raw = unsafe {
+            CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, size_pt, std::ptr::null())
+        };
         let last_resort_font = if !last_raw.is_null() {
             Some(CTFontWrapper::new(last_raw))
         } else {
@@ -347,9 +357,8 @@ impl CoreTextBackend {
         let mut glyph_0 = [0u16];
         let ch_0 = ['0' as u16];
         // SAFETY: Getting glyph ID for character '0'.
-        let has_zero = unsafe {
-            CTFontGetGlyphsForCharacters(font, ch_0.as_ptr(), glyph_0.as_mut_ptr(), 1)
-        };
+        let has_zero =
+            unsafe { CTFontGetGlyphsForCharacters(font, ch_0.as_ptr(), glyph_0.as_mut_ptr(), 1) };
         let advance_0 = if has_zero && glyph_0[0] != 0 {
             let mut adv = [CGSize::default()];
             // SAFETY: Measuring advance of glyph '0'.
@@ -378,12 +387,7 @@ impl CoreTextBackend {
 
     /// Resolve a character glyph using the fallback chain:
     /// primary face → CTFontCreateForString → Apple Color Emoji → .LastResort.
-    fn resolve_fallback(
-        &mut self,
-        font_idx: usize,
-        face_idx: usize,
-        c: char,
-    ) -> GlyphRef {
+    fn resolve_fallback(&mut self, font_idx: usize, face_idx: usize, c: char) -> GlyphRef {
         let loaded = &mut self.fonts[font_idx];
         let font_id = FontId(font_idx as u32);
         let face = &loaded.faces[face_idx];
@@ -474,9 +478,8 @@ impl CoreTextBackend {
         };
 
         // SAFETY: Calling system CTFontCreateForString fallback.
-        let fallback_font_raw = unsafe {
-            CTFontCreateForString(face.ct_font.as_ptr(), cf_str, range)
-        };
+        let fallback_font_raw =
+            unsafe { CTFontCreateForString(face.ct_font.as_ptr(), cf_str, range) };
         // SAFETY: Releasing temporary CFString.
         unsafe { CFRelease(cf_str) };
 
@@ -582,6 +585,29 @@ impl CoreTextBackend {
     }
 }
 
+impl CoreTextBackend {
+    /// Glyph lookup in a specific face (regular/bold/italic/bold-italic).
+    #[inline]
+    fn glyph_face(&mut self, f: FontId, c: char, face_idx: usize) -> GlyphRef {
+        let font_idx = f.0 as usize;
+
+        // ASCII fast path: 32 (space) to 126 (~) direct array index lookup
+        let ascii_idx = (c as u32).wrapping_sub(32);
+        if ascii_idx < 95 {
+            return self.fonts[font_idx].faces[face_idx].ascii[ascii_idx as usize];
+        }
+
+        // HashMap fallback for non-ASCII
+        if let Some(&g) = self.fonts[font_idx].faces[face_idx].non_ascii.get(&c) {
+            return g;
+        }
+
+        let g = self.resolve_fallback(font_idx, face_idx, c);
+        self.fonts[font_idx].faces[face_idx].non_ascii.insert(c, g);
+        g
+    }
+}
+
 impl FontBackend for CoreTextBackend {
     fn resolve(&mut self, spec: &FontSpec) -> FontId {
         let (faces, emoji_font, last_resort_font) = Self::create_faces(spec, self.scale);
@@ -620,41 +646,21 @@ impl FontBackend for CoreTextBackend {
 
     #[inline]
     fn glyph(&mut self, f: FontId, c: char) -> GlyphRef {
-        let font_idx = f.0 as usize;
-        let face_idx = FACE_REGULAR;
-
-        // ASCII fast path: 32 (space) to 126 (~) direct array index lookup
-        let ascii_idx = (c as u32).wrapping_sub(32);
-        if ascii_idx < 95 {
-            // SAFETY: ascii_idx < 95 is within bounds of face.ascii [GlyphRef; 95], font_idx and face_idx are valid.
-            unsafe {
-                return *self
-                    .fonts
-                    .get_unchecked(font_idx)
-                    .faces
-                    .get_unchecked(face_idx)
-                    .ascii
-                    .get_unchecked(ascii_idx as usize);
-            }
-        }
-
-        // HashMap fallback for non-ASCII
-        if let Some(&g) = self.fonts[font_idx].faces[face_idx].non_ascii.get(&c) {
-            return g;
-        }
-
-        let g = self.resolve_fallback(font_idx, face_idx, c);
-        self.fonts[font_idx].faces[face_idx].non_ascii.insert(c, g);
-        g
+        self.glyph_face(f, c, FACE_REGULAR)
     }
 
-    fn shape(
-        &mut self,
-        f: FontId,
-        text: &str,
-        ligatures: bool,
-        out: &mut Vec<ShapedGlyph>,
-    ) {
+    #[inline]
+    fn glyph_styled(&mut self, f: FontId, c: char, bold: bool, italic: bool) -> GlyphRef {
+        let face = match (bold, italic) {
+            (false, false) => FACE_REGULAR,
+            (true, false) => FACE_BOLD,
+            (false, true) => FACE_ITALIC,
+            (true, true) => FACE_BOLD_ITALIC,
+        };
+        self.glyph_face(f, c, face)
+    }
+
+    fn shape(&mut self, f: FontId, text: &str, ligatures: bool, out: &mut Vec<ShapedGlyph>) {
         if text.is_empty() {
             return;
         }
@@ -664,13 +670,33 @@ impl FontBackend for CoreTextBackend {
 
         // Check if run can skip ligature shaping:
         // When ligatures = false, or when text contains only ASCII letters/digits/spaces
-        let skip_shaping = !ligatures || !text.chars().any(|c| {
-            matches!(
-                c,
-                '!' | '#' | '$' | '%' | '&' | '*' | '+' | '-' | '.' | '/' | ':'
-                    | ';' | '<' | '=' | '>' | '?' | '@' | '\\' | '^' | '_' | '|' | '~'
-            )
-        });
+        let skip_shaping = !ligatures
+            || !text.chars().any(|c| {
+                matches!(
+                    c,
+                    '!' | '#'
+                        | '$'
+                        | '%'
+                        | '&'
+                        | '*'
+                        | '+'
+                        | '-'
+                        | '.'
+                        | '/'
+                        | ':'
+                        | ';'
+                        | '<'
+                        | '='
+                        | '>'
+                        | '?'
+                        | '@'
+                        | '\\'
+                        | '^'
+                        | '_'
+                        | '|'
+                        | '~'
+                )
+            });
 
         if skip_shaping {
             for (col, ch) in text.chars().enumerate() {
@@ -703,9 +729,13 @@ impl FontBackend for CoreTextBackend {
         let ct_font = self.fonts[font_idx].faces[FACE_REGULAR].ct_font.as_ptr();
 
         let num_val: i32 = 2; // All ligatures
-        // SAFETY: Creating CFNumber for kCTLigatureAttributeName.
+                              // SAFETY: Creating CFNumber for kCTLigatureAttributeName.
         let cf_num = unsafe {
-            CFNumberCreate(std::ptr::null(), 3 /* kCFNumberSInt32Type */, &num_val as *const i32 as *const c_void)
+            CFNumberCreate(
+                std::ptr::null(),
+                3, /* kCFNumberSInt32Type */
+                &num_val as *const i32 as *const c_void,
+            )
         };
 
         // SAFETY: Creating attributes dictionary with font and ligature options.
@@ -826,12 +856,7 @@ impl FontBackend for CoreTextBackend {
         out.extend(shaped_run);
     }
 
-    fn rasterize(
-        &mut self,
-        g: GlyphRef,
-        scale: f32,
-        out: &mut RasterBuf,
-    ) -> RasterInfo {
+    fn rasterize(&mut self, g: GlyphRef, scale: f32, out: &mut RasterBuf) -> RasterInfo {
         let entry = &self.glyphs[g.0 as usize];
 
         // 1. Procedural glyph rasterization
@@ -901,10 +926,13 @@ impl FontBackend for CoreTextBackend {
                     kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little,
                 );
                 CGContextSetShouldAntialias(ctx, true);
+                // Fonts are sized in points; scale the context so the glyph fills the
+                // device-pixel bitmap instead of 1/scale of it.
+                CGContextScaleCTM(ctx, s, s);
 
                 let pos = CGPoint {
-                    x: (-bounds.origin.x * s) + 1.0,
-                    y: (-bounds.origin.y * s) + 1.0,
+                    x: -bounds.origin.x + 1.0 / s,
+                    y: -bounds.origin.y + 1.0 / s,
                 };
                 CTFontDrawGlyphs(entry.font.as_ptr(), &entry.glyph, &pos, 1, ctx);
 
@@ -940,17 +968,19 @@ impl FontBackend for CoreTextBackend {
             CGContextSetAllowsFontSmoothing(ctx, true);
             CGContextSetShouldSmoothFonts(ctx, self.thicken);
             CGContextSetGrayFillColor(ctx, 1.0, 1.0);
+            // Fonts are sized in points; scale the context to device pixels.
+            CGContextScaleCTM(ctx, s, s);
 
             let pos = CGPoint {
-                x: (-bounds.origin.x * s) + 1.0,
-                y: (-bounds.origin.y * s) + 1.0,
+                x: -bounds.origin.x + 1.0 / s,
+                y: -bounds.origin.y + 1.0 / s,
             };
             CTFontDrawGlyphs(entry.font.as_ptr(), &entry.glyph, &pos, 1, ctx);
 
             // Fake bold synthesis: draw again offset by 1 physical pixel
             if entry.synthetic_bold {
                 let pos_bold = CGPoint {
-                    x: pos.x + 1.0,
+                    x: pos.x + 1.0 / s,
                     y: pos.y,
                 };
                 CTFontDrawGlyphs(entry.font.as_ptr(), &entry.glyph, &pos_bold, 1, ctx);
@@ -1071,11 +1101,41 @@ mod tests {
     }
 
     #[test]
+    fn test_glyph_ink_fills_scaled_bitmap() {
+        let mut backend = CoreTextBackend::new();
+        let id = backend.resolve(&FontSpec::default());
+        let mut buf = RasterBuf::default();
+
+        for c in ['M', 'r', 'W'] {
+            let g = backend.glyph(id, c);
+            let RasterInfo::Mask { width, height, .. } = backend.rasterize(g, 2.0, &mut buf) else {
+                panic!("expected mask for {c:?}");
+            };
+            let (w, h) = (width as usize, height as usize);
+            let inked = |x: usize, y: usize| buf.data[y * w + x] > 64;
+            let ink_rows = (0..h).filter(|&y| (0..w).any(|x| inked(x, y))).count();
+            let ink_cols = (0..w).filter(|&x| (0..h).any(|y| inked(x, y))).count();
+            // Bitmap is the glyph bounds at device scale plus a 1px border on each side;
+            // the drawn ink must cover it, not 1/scale of it.
+            assert!(
+                ink_rows * 4 >= (h - 2) * 3,
+                "{c:?}: {ink_rows} ink rows of {h}"
+            );
+            assert!(
+                ink_cols * 4 >= (w - 2) * 3,
+                "{c:?}: {ink_cols} ink cols of {w}"
+            );
+        }
+    }
+
+    #[test]
     fn test_benchmark_10k_ascii_lookups() {
         let mut backend = CoreTextBackend::new();
         let id = backend.resolve(&FontSpec::default());
 
-        let chars: Vec<char> = (0..10_000).map(|i| ((32 + (i % 95)) as u8) as char).collect();
+        let chars: Vec<char> = (0..10_000)
+            .map(|i| ((32 + (i % 95)) as u8) as char)
+            .collect();
 
         let start = std::time::Instant::now();
         let mut sum = 0u64;

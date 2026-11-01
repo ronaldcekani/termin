@@ -93,7 +93,10 @@ pub fn handle_osc(
 
     // Enforce payload caps
     let total_len: usize = params.iter().map(|p| p.len()).sum();
-    let num = match std::str::from_utf8(params[0]).ok().and_then(|s| s.parse::<u32>().ok()) {
+    let num = match std::str::from_utf8(params[0])
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+    {
         Some(n) => n,
         None => return,
     };
@@ -135,7 +138,10 @@ pub fn handle_osc(
                             let r = (color.0 >> 24) as u8;
                             let g = (color.0 >> 16) as u8;
                             let b = (color.0 >> 8) as u8;
-                            let reply = format!("\x1b]4;{};rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x1b\\", c, r, r, g, g, b, b);
+                            let reply = format!(
+                                "\x1b]4;{};rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x1b\\",
+                                c, r, r, g, g, b, b
+                            );
                             sink.write_back(reply.as_bytes());
                         } else {
                             // Set color override (future palette override)
@@ -155,7 +161,10 @@ pub fn handle_osc(
                         let r = (default_fg.0 >> 24) as u8;
                         let g = (default_fg.0 >> 16) as u8;
                         let b = (default_fg.0 >> 8) as u8;
-                        let reply = format!("\x1b]10;rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x1b\\", r, r, g, g, b, b);
+                        let reply = format!(
+                            "\x1b]10;rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x1b\\",
+                            r, r, g, g, b, b
+                        );
                         sink.write_back(reply.as_bytes());
                     }
                 }
@@ -170,7 +179,28 @@ pub fn handle_osc(
                         let r = (default_bg.0 >> 24) as u8;
                         let g = (default_bg.0 >> 16) as u8;
                         let b = (default_bg.0 >> 8) as u8;
-                        let reply = format!("\x1b]11;rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x1b\\", r, r, g, g, b, b);
+                        let reply = format!(
+                            "\x1b]11;rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x1b\\",
+                            r, r, g, g, b, b
+                        );
+                        sink.write_back(reply.as_bytes());
+                    }
+                }
+            }
+        }
+
+        // OSC 12: Cursor color query / set
+        12 => {
+            if params.len() > 1 {
+                if let Ok(spec) = std::str::from_utf8(params[1]) {
+                    if spec == "?" {
+                        let r = (default_fg.0 >> 24) as u8;
+                        let g = (default_fg.0 >> 16) as u8;
+                        let b = (default_fg.0 >> 8) as u8;
+                        let reply = format!(
+                            "\x1b]12;rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x1b\\",
+                            r, r, g, g, b, b
+                        );
                         sink.write_back(reply.as_bytes());
                     }
                 }
@@ -272,7 +302,8 @@ pub fn handle_osc(
                         if osc52_policy == Osc52Policy::ReadWrite {
                             sink.effect(Effect::ClipboardRequest);
                         }
-                    } else if (osc52_policy == Osc52Policy::Write || osc52_policy == Osc52Policy::ReadWrite)
+                    } else if (osc52_policy == Osc52Policy::Write
+                        || osc52_policy == Osc52Policy::ReadWrite)
                         && !data.is_empty()
                     {
                         if let Some(decoded) = base64_decode(data) {
@@ -307,7 +338,9 @@ pub fn handle_osc(
                                         }
                                     }
                                 }
-                                if let Some(ev) = blocks.on_output_start(current_line, cmdline.as_deref()) {
+                                if let Some(ev) =
+                                    blocks.on_output_start(current_line, cmdline.as_deref())
+                                {
                                     sink.effect(Effect::Block(ev));
                                 }
                             }
@@ -320,7 +353,9 @@ pub fn handle_osc(
                                 } else {
                                     0
                                 };
-                                if let Some(ev) = blocks.on_command_finished(current_line, exit_code) {
+                                if let Some(ev) =
+                                    blocks.on_command_finished(current_line, exit_code)
+                                {
                                     sink.effect(Effect::Block(ev));
                                 }
                             }
@@ -366,7 +401,10 @@ mod tests {
     #[test]
     fn test_percent_decode() {
         assert_eq!(percent_decode("hello%20world"), "hello world");
-        assert_eq!(percent_decode("/Users/test/foo%2Fbar"), "/Users/test/foo/bar");
+        assert_eq!(
+            percent_decode("/Users/test/foo%2Fbar"),
+            "/Users/test/foo/bar"
+        );
     }
 
     #[test]

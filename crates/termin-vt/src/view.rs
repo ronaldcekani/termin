@@ -17,14 +17,8 @@ pub enum ScrollPos {
 ///
 /// In the common steady state (`ScrollPos::Bottom`), zero heap allocations are made.
 pub enum GridView<'a> {
-    Screen {
-        rows: &'a [Row],
-        idx: usize,
-    },
-    Scrolled {
-        views: Vec<RowView<'a>>,
-        idx: usize,
-    },
+    Screen { rows: &'a [Row], idx: usize },
+    Scrolled { views: Vec<RowView<'a>>, idx: usize },
 }
 
 impl<'a> Iterator for GridView<'a> {

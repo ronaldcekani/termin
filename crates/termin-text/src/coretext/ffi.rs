@@ -126,7 +126,11 @@ extern "C" {
         value_callbacks: *const [usize; 5],
     ) -> CFDictionaryRef;
 
-    pub fn CFNumberCreate(allocator: CFTypeRef, the_type: CFIndex, value_ptr: *const c_void) -> CFTypeRef;
+    pub fn CFNumberCreate(
+        allocator: CFTypeRef,
+        the_type: CFIndex,
+        value_ptr: *const c_void,
+    ) -> CFTypeRef;
 }
 
 #[link(name = "CoreText", kind = "framework")]
@@ -134,8 +138,16 @@ extern "C" {
     pub static kCTFontAttributeName: CFStringRef;
     pub static kCTLigatureAttributeName: CFStringRef;
 
-    pub fn CTFontCreateWithName(name: CFStringRef, size: CGFloat, matrix: *const CGAffineTransform) -> CTFontRef;
-    pub fn CTFontCreateUIFontForLanguage(ui_type: u32, size: CGFloat, language: CFStringRef) -> CTFontRef;
+    pub fn CTFontCreateWithName(
+        name: CFStringRef,
+        size: CGFloat,
+        matrix: *const CGAffineTransform,
+    ) -> CTFontRef;
+    pub fn CTFontCreateUIFontForLanguage(
+        ui_type: u32,
+        size: CGFloat,
+        language: CFStringRef,
+    ) -> CTFontRef;
     pub fn CTFontCreateCopyWithSymbolicTraits(
         font: CTFontRef,
         size: CGFloat,
@@ -149,7 +161,11 @@ extern "C" {
         matrix: *const CGAffineTransform,
         attributes: CFTypeRef,
     ) -> CTFontRef;
-    pub fn CTFontCreateForString(current_font: CTFontRef, string: CFStringRef, range: CFRange) -> CTFontRef;
+    pub fn CTFontCreateForString(
+        current_font: CTFontRef,
+        string: CFStringRef,
+        range: CFRange,
+    ) -> CTFontRef;
 
     pub fn CTFontCopyPostScriptName(font: CTFontRef) -> CFStringRef;
     pub fn CTFontCopyFamilyName(font: CTFontRef) -> CFStringRef;
@@ -247,6 +263,13 @@ extern "C" {
     pub fn CGContextSetAllowsFontSmoothing(c: CGContextRef, allows_font_smoothing: bool);
     pub fn CGContextSetShouldSmoothFonts(c: CGContextRef, should_smooth_fonts: bool);
     pub fn CGContextSetGrayFillColor(c: CGContextRef, gray: CGFloat, alpha: CGFloat);
-    pub fn CGContextSetRGBFillColor(c: CGContextRef, red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat);
+    pub fn CGContextSetRGBFillColor(
+        c: CGContextRef,
+        red: CGFloat,
+        green: CGFloat,
+        blue: CGFloat,
+        alpha: CGFloat,
+    );
     pub fn CGContextSetTextDrawingMode(c: CGContextRef, mode: i32);
+    pub fn CGContextScaleCTM(c: CGContextRef, sx: CGFloat, sy: CGFloat);
 }

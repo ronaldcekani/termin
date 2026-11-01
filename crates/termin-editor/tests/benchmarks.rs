@@ -1,5 +1,8 @@
 use std::time::Instant;
-use termin_editor::{complete, CompletionContext, HistoryIndex, StaticCommandSpec, StaticOptionSpec, StaticSubcommandSpec, COMPILED_SPECS};
+use termin_editor::{
+    complete, CompletionContext, HistoryIndex, StaticCommandSpec, StaticOptionSpec,
+    StaticSubcommandSpec, COMPILED_SPECS,
+};
 
 #[test]
 fn bench_autosuggest_50k_items() {
@@ -28,7 +31,8 @@ fn bench_autosuggest_50k_items() {
     }
 
     let min_sample = samples.iter().min().unwrap();
-    let avg_sample: std::time::Duration = samples.iter().sum::<std::time::Duration>() / (samples.len() as u32);
+    let avg_sample: std::time::Duration =
+        samples.iter().sum::<std::time::Duration>() / (samples.len() as u32);
 
     println!(
         "[BENCH] autosuggest over 50k entries: min={:?}, avg={:?}",
@@ -69,7 +73,8 @@ fn bench_sync_completion_large_dir() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 
     let min_sample = samples.iter().min().unwrap();
-    let avg_sample: std::time::Duration = samples.iter().sum::<std::time::Duration>() / (samples.len() as u32);
+    let avg_sample: std::time::Duration =
+        samples.iter().sum::<std::time::Duration>() / (samples.len() as u32);
 
     println!(
         "[BENCH] sync completion over 5k files: min={:?}, avg={:?}",
@@ -77,7 +82,11 @@ fn bench_sync_completion_large_dir() {
     );
 
     // Budget: < 2 ms (2000 microseconds) in release mode; < 10 ms in unoptimized debug
-    let budget_us = if cfg!(debug_assertions) { 10_000 } else { 2_000 };
+    let budget_us = if cfg!(debug_assertions) {
+        10_000
+    } else {
+        2_000
+    };
     assert!(
         min_sample.as_micros() < budget_us,
         "Sync completion exceeded budget (min {:?} >= {} µs)",

@@ -164,7 +164,16 @@ fn render_box_drawing(c: char, width: u32, height: u32, out: &mut [u8]) -> bool 
         Branch::Heavy => fill_rect(out, width, height, hx0, 0, hx1, cy + 1, 255),
         Branch::Double => {
             fill_rect(out, width, height, d_left, 0, d_left + d_thick, cy + 1, 255);
-            fill_rect(out, width, height, d_right, 0, d_right + d_thick, cy + 1, 255);
+            fill_rect(
+                out,
+                width,
+                height,
+                d_right,
+                0,
+                d_right + d_thick,
+                cy + 1,
+                255,
+            );
         }
         Branch::Dashed2Light | Branch::Dashed3Light | Branch::Dashed4Light => {
             render_dashed_v(out, width, height, 0, cy, lx0, lx1, up)
@@ -180,8 +189,26 @@ fn render_box_drawing(c: char, width: u32, height: u32, out: &mut [u8]) -> bool 
         Branch::Light => fill_rect(out, width, height, lx0, cy, lx1, height, 255),
         Branch::Heavy => fill_rect(out, width, height, hx0, cy, hx1, height, 255),
         Branch::Double => {
-            fill_rect(out, width, height, d_left, cy, d_left + d_thick, height, 255);
-            fill_rect(out, width, height, d_right, cy, d_right + d_thick, height, 255);
+            fill_rect(
+                out,
+                width,
+                height,
+                d_left,
+                cy,
+                d_left + d_thick,
+                height,
+                255,
+            );
+            fill_rect(
+                out,
+                width,
+                height,
+                d_right,
+                cy,
+                d_right + d_thick,
+                height,
+                255,
+            );
         }
         Branch::Dashed2Light | Branch::Dashed3Light | Branch::Dashed4Light => {
             render_dashed_v(out, width, height, cy, height, lx0, lx1, down)
@@ -290,7 +317,13 @@ fn render_arc_corner(out: &mut [u8], width: u32, height: u32, corner: ArcCorner)
     true
 }
 
-fn render_diagonal(out: &mut [u8], width: u32, height: u32, top_left_to_bottom_right: bool, bottom_left_to_top_right: bool) -> bool {
+fn render_diagonal(
+    out: &mut [u8],
+    width: u32,
+    height: u32,
+    top_left_to_bottom_right: bool,
+    bottom_left_to_top_right: bool,
+) -> bool {
     let t = (height / 14).max(1);
     let half_t = t / 2;
 
@@ -319,7 +352,16 @@ fn render_diagonal(out: &mut [u8], width: u32, height: u32, top_left_to_bottom_r
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_dashed_h(out: &mut [u8], width: u32, height: u32, x0: u32, x1: u32, y0: u32, y1: u32, branch: Branch) {
+fn render_dashed_h(
+    out: &mut [u8],
+    width: u32,
+    height: u32,
+    x0: u32,
+    x1: u32,
+    y0: u32,
+    y1: u32,
+    branch: Branch,
+) {
     let count = match branch {
         Branch::Dashed2Light | Branch::Dashed2Heavy => 2,
         Branch::Dashed3Light | Branch::Dashed3Heavy => 3,
@@ -338,7 +380,16 @@ fn render_dashed_h(out: &mut [u8], width: u32, height: u32, x0: u32, x1: u32, y0
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_dashed_v(out: &mut [u8], width: u32, height: u32, y0: u32, y1: u32, x0: u32, x1: u32, branch: Branch) {
+fn render_dashed_v(
+    out: &mut [u8],
+    width: u32,
+    height: u32,
+    y0: u32,
+    y1: u32,
+    x0: u32,
+    x1: u32,
+    branch: Branch,
+) {
     let count = match branch {
         Branch::Dashed2Light | Branch::Dashed2Heavy => 2,
         Branch::Dashed3Light | Branch::Dashed3Heavy => 3,
@@ -677,7 +728,16 @@ fn render_powerline(c: char, width: u32, height: u32, out: &mut [u8]) -> bool {
                     (height as f32 - 1.0 - fy) / half_h
                 };
                 let x_limit = ((factor * width as f32).round() as u32).min(width);
-                fill_rect(out, width, height, 0, y, (x_limit + 1).min(width), y + 1, 255);
+                fill_rect(
+                    out,
+                    width,
+                    height,
+                    0,
+                    y,
+                    (x_limit + 1).min(width),
+                    y + 1,
+                    255,
+                );
             }
             true
         }
@@ -707,7 +767,16 @@ fn render_powerline(c: char, width: u32, height: u32, out: &mut [u8]) -> bool {
                     1.0 - ((height as f32 - 1.0 - fy) / half_h)
                 };
                 let x_start = ((factor * width as f32).round() as u32).min(width);
-                fill_rect(out, width, height, x_start.saturating_sub(1), y, width, y + 1, 255);
+                fill_rect(
+                    out,
+                    width,
+                    height,
+                    x_start.saturating_sub(1),
+                    y,
+                    width,
+                    y + 1,
+                    255,
+                );
             }
             true
         }

@@ -20,4 +20,5 @@ termin-config.workspace = true
 termin-ui.workspace = true
 termin-ipc.workspace = true
 termin-persist.workspace = true
+rustc-hash.workspace = true
 log.workspace = true

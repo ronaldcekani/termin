@@ -2,12 +2,12 @@
 //!
 //! See `docs/specs/ipc-cli.md §1, §4`.
 
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 
 use crate::error::IpcError;
 use crate::protocol::{Event, Request, Response, METHOD_PING};
@@ -89,12 +89,16 @@ impl Client {
     pub fn try_connect(path: &Path) -> Result<Self, IpcError> {
         let stream = match UnixStream::connect(path) {
             Ok(s) => s,
-            Err(e) if matches!(
-                e.kind(),
-                std::io::ErrorKind::NotFound
-                    | std::io::ErrorKind::ConnectionRefused
-                    | std::io::ErrorKind::ConnectionReset
-            ) => return Err(IpcError::NotRunning),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound
+                        | std::io::ErrorKind::ConnectionRefused
+                        | std::io::ErrorKind::ConnectionReset
+                ) =>
+            {
+                return Err(IpcError::NotRunning)
+            }
             Err(e) => return Err(IpcError::Io(e)),
         };
 

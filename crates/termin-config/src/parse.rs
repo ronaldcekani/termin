@@ -41,10 +41,7 @@ pub fn load(path: &Path) -> (Config, Vec<Diagnostic>) {
 }
 
 /// Load configuration from a file path with injected action name validator.
-pub fn load_with_action_validator<F>(
-    path: &Path,
-    is_valid_action: F,
-) -> (Config, Vec<Diagnostic>)
+pub fn load_with_action_validator<F>(path: &Path, is_valid_action: F) -> (Config, Vec<Diagnostic>)
 where
     F: Fn(&str) -> bool,
 {
@@ -67,10 +64,7 @@ where
 /// Parse configuration from a TOML string with an injected action name validation function.
 ///
 /// See `docs/specs/config.md §2, §5`.
-pub fn parse_with_action_validator<F>(
-    src: &str,
-    is_valid_action: F,
-) -> (Config, Vec<Diagnostic>)
+pub fn parse_with_action_validator<F>(src: &str, is_valid_action: F) -> (Config, Vec<Diagnostic>)
 where
     F: Fn(&str) -> bool,
 {
@@ -196,9 +190,7 @@ fn parse_font_section(val: &toml::Value, font: &mut FontConfig, diags: &mut Vec<
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'font' must be a table").with_key("font"),
-            );
+            diags.push(Diagnostic::error("section 'font' must be a table").with_key("font"));
             return;
         }
     };
@@ -253,10 +245,8 @@ fn parse_font_section(val: &toml::Value, font: &mut FontConfig, diags: &mut Vec<
             "bold_is_bright" => match v.as_bool() {
                 Some(b) => font.bold_is_bright = b,
                 None => diags.push(
-                    Diagnostic::error(
-                        "wrong type for 'font.bold_is_bright', expected boolean",
-                    )
-                    .with_key("font.bold_is_bright"),
+                    Diagnostic::error("wrong type for 'font.bold_is_bright', expected boolean")
+                        .with_key("font.bold_is_bright"),
                 ),
             },
             other => {
@@ -275,9 +265,7 @@ fn parse_theme_section(val: &toml::Value, theme: &mut ThemeConfig, diags: &mut V
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'theme' must be a table").with_key("theme"),
-            );
+            diags.push(Diagnostic::error("section 'theme' must be a table").with_key("theme"));
             return;
         }
     };
@@ -322,9 +310,7 @@ fn parse_window_section(val: &toml::Value, win: &mut WindowConfig, diags: &mut V
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'window' must be a table").with_key("window"),
-            );
+            diags.push(Diagnostic::error("section 'window' must be a table").with_key("window"));
             return;
         }
     };
@@ -377,10 +363,8 @@ fn parse_window_section(val: &toml::Value, win: &mut WindowConfig, diags: &mut V
             "restore_session" => match v.as_bool() {
                 Some(b) => win.restore_session = b,
                 None => diags.push(
-                    Diagnostic::error(
-                        "wrong type for 'window.restore_session', expected boolean",
-                    )
-                    .with_key("window.restore_session"),
+                    Diagnostic::error("wrong type for 'window.restore_session', expected boolean")
+                        .with_key("window.restore_session"),
                 ),
             },
             "quit_on_last_window_close" => match v.as_bool() {
@@ -411,28 +395,16 @@ fn parse_window_section(val: &toml::Value, win: &mut WindowConfig, diags: &mut V
     }
 }
 
-fn parse_sidebar_section(
-    val: &toml::Value,
-    side: &mut SidebarConfig,
-    diags: &mut Vec<Diagnostic>,
-) {
+fn parse_sidebar_section(val: &toml::Value, side: &mut SidebarConfig, diags: &mut Vec<Diagnostic>) {
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'sidebar' must be a table").with_key("sidebar"),
-            );
+            diags.push(Diagnostic::error("section 'sidebar' must be a table").with_key("sidebar"));
             return;
         }
     };
 
-    const KNOWN: &[&str] = &[
-        "visible",
-        "width",
-        "show_git",
-        "show_ports",
-        "show_paths",
-    ];
+    const KNOWN: &[&str] = &["visible", "width", "show_git", "show_ports", "show_paths"];
     for (k, v) in tbl {
         match k.as_str() {
             "visible" => match v.as_bool() {
@@ -490,9 +462,8 @@ fn parse_terminal_section(
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'terminal' must be a table").with_key("terminal"),
-            );
+            diags
+                .push(Diagnostic::error("section 'terminal' must be a table").with_key("terminal"));
             return;
         }
     };
@@ -543,10 +514,8 @@ fn parse_terminal_section(
             "word_separators" => match v.as_str() {
                 Some(s) => term.word_separators = s.to_string(),
                 None => diags.push(
-                    Diagnostic::error(
-                        "wrong type for 'terminal.word_separators', expected string",
-                    )
-                    .with_key("terminal.word_separators"),
+                    Diagnostic::error("wrong type for 'terminal.word_separators', expected string")
+                        .with_key("terminal.word_separators"),
                 ),
             },
             "osc52" => match v.as_str() {
@@ -607,9 +576,7 @@ fn parse_shell_section(val: &toml::Value, shell: &mut ShellConfig, diags: &mut V
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'shell' must be a table").with_key("shell"),
-            );
+            diags.push(Diagnostic::error("section 'shell' must be a table").with_key("shell"));
             return;
         }
     };
@@ -680,17 +647,11 @@ fn parse_shell_section(val: &toml::Value, shell: &mut ShellConfig, diags: &mut V
     }
 }
 
-fn parse_blocks_section(
-    val: &toml::Value,
-    blocks: &mut BlocksConfig,
-    diags: &mut Vec<Diagnostic>,
-) {
+fn parse_blocks_section(val: &toml::Value, blocks: &mut BlocksConfig, diags: &mut Vec<Diagnostic>) {
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'blocks' must be a table").with_key("blocks"),
-            );
+            diags.push(Diagnostic::error("section 'blocks' must be a table").with_key("blocks"));
             return;
         }
     };
@@ -708,19 +669,15 @@ fn parse_blocks_section(
             "show_duration" => match v.as_bool() {
                 Some(b) => blocks.show_duration = b,
                 None => diags.push(
-                    Diagnostic::error(
-                        "wrong type for 'blocks.show_duration', expected boolean",
-                    )
-                    .with_key("blocks.show_duration"),
+                    Diagnostic::error("wrong type for 'blocks.show_duration', expected boolean")
+                        .with_key("blocks.show_duration"),
                 ),
             },
             "sticky_header" => match v.as_bool() {
                 Some(b) => blocks.sticky_header = b,
                 None => diags.push(
-                    Diagnostic::error(
-                        "wrong type for 'blocks.sticky_header', expected boolean",
-                    )
-                    .with_key("blocks.sticky_header"),
+                    Diagnostic::error("wrong type for 'blocks.sticky_header', expected boolean")
+                        .with_key("blocks.sticky_header"),
                 ),
             },
             other => {
@@ -735,17 +692,11 @@ fn parse_blocks_section(
     }
 }
 
-fn parse_editor_section(
-    val: &toml::Value,
-    editor: &mut EditorConfig,
-    diags: &mut Vec<Diagnostic>,
-) {
+fn parse_editor_section(val: &toml::Value, editor: &mut EditorConfig, diags: &mut Vec<Diagnostic>) {
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'editor' must be a table").with_key("editor"),
-            );
+            diags.push(Diagnostic::error("section 'editor' must be a table").with_key("editor"));
             return;
         }
     };
@@ -768,10 +719,8 @@ fn parse_editor_section(
             "auto_complete" => match v.as_bool() {
                 Some(b) => editor.auto_complete = b,
                 None => diags.push(
-                    Diagnostic::error(
-                        "wrong type for 'editor.auto_complete', expected boolean",
-                    )
-                    .with_key("editor.auto_complete"),
+                    Diagnostic::error("wrong type for 'editor.auto_complete', expected boolean")
+                        .with_key("editor.auto_complete"),
                 ),
             },
             "history_same_cwd_first" => match v.as_bool() {
@@ -808,9 +757,7 @@ fn parse_split_section(val: &toml::Value, split: &mut SplitConfig, diags: &mut V
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'split' must be a table").with_key("split"),
-            );
+            diags.push(Diagnostic::error("section 'split' must be a table").with_key("split"));
             return;
         }
     };
@@ -836,9 +783,7 @@ fn parse_pane_section(val: &toml::Value, pane: &mut PaneConfig, diags: &mut Vec<
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'pane' must be a table").with_key("pane"),
-            );
+            diags.push(Diagnostic::error("section 'pane' must be a table").with_key("pane"));
             return;
         }
     };
@@ -949,8 +894,7 @@ fn parse_keybindings_section<F>(
         Some(t) => t,
         None => {
             diags.push(
-                Diagnostic::error("section 'keybindings' must be a table")
-                    .with_key("keybindings"),
+                Diagnostic::error("section 'keybindings' must be a table").with_key("keybindings"),
             );
             return;
         }
@@ -996,12 +940,8 @@ fn parse_keybindings_section<F>(
             }
         };
 
-        let entry_diags = validate_keybinding_entry(
-            chord_str,
-            binding.action(),
-            binding.when(),
-            is_valid_action,
-        );
+        let entry_diags =
+            validate_keybinding_entry(chord_str, binding.action(), binding.when(), is_valid_action);
         diags.extend(entry_diags);
 
         keybindings.insert(chord_str.clone(), binding);
@@ -1012,9 +952,7 @@ fn parse_colors_section(val: &toml::Value, colors: &mut ColorsConfig, diags: &mu
     let tbl = match val.as_table() {
         Some(t) => t,
         None => {
-            diags.push(
-                Diagnostic::error("section 'colors' must be a table").with_key("colors"),
-            );
+            diags.push(Diagnostic::error("section 'colors' must be a table").with_key("colors"));
             return;
         }
     };
@@ -1027,11 +965,8 @@ fn parse_colors_section(val: &toml::Value, colors: &mut ColorsConfig, diags: &mu
                 }
                 Err(err) => {
                     diags.push(
-                        Diagnostic::error(format!(
-                            "invalid color for 'colors.{}': {}",
-                            k, err
-                        ))
-                        .with_key(format!("colors.{}", k)),
+                        Diagnostic::error(format!("invalid color for 'colors.{}': {}", k, err))
+                            .with_key(format!("colors.{}", k)),
                     );
                 }
             },
@@ -1156,7 +1091,10 @@ mod tests {
         "##;
         let (cfg, diags) = parse(toml_str);
         assert!(diags.is_empty(), "diagnostics: {:?}", diags);
-        assert_eq!(cfg.colors.get("bg.app").map(|s| s.as_str()), Some("#000000"));
+        assert_eq!(
+            cfg.colors.get("bg.app").map(|s| s.as_str()),
+            Some("#000000")
+        );
         assert_eq!(
             cfg.colors.get("cursor").map(|s| s.as_str()),
             Some("#FF0000 @ 50%")

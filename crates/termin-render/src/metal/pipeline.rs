@@ -33,8 +33,7 @@ impl Pipelines {
         let library = load_library(device)?;
 
         let quad = create_pipeline(device, &library, "quad_vertex", "quad_fragment")?;
-        let glyph_mask =
-            create_pipeline(device, &library, "glyph_vertex", "glyph_mask_fragment")?;
+        let glyph_mask = create_pipeline(device, &library, "glyph_vertex", "glyph_mask_fragment")?;
         let glyph_color =
             create_pipeline(device, &library, "glyph_vertex", "glyph_color_fragment")?;
         let icon = create_pipeline(device, &library, "glyph_vertex", "icon_fragment")?;
@@ -85,13 +84,13 @@ fn create_pipeline(
     let ns_vert = NSString::from_str(vertex_name);
     let ns_frag = NSString::from_str(fragment_name);
 
-    let vert_func = library
-        .newFunctionWithName(&ns_vert)
-        .ok_or_else(|| RenderError::PipelineCreationFailed(format!("vertex function not found: {vertex_name}")))?;
+    let vert_func = library.newFunctionWithName(&ns_vert).ok_or_else(|| {
+        RenderError::PipelineCreationFailed(format!("vertex function not found: {vertex_name}"))
+    })?;
 
-    let frag_func = library
-        .newFunctionWithName(&ns_frag)
-        .ok_or_else(|| RenderError::PipelineCreationFailed(format!("fragment function not found: {fragment_name}")))?;
+    let frag_func = library.newFunctionWithName(&ns_frag).ok_or_else(|| {
+        RenderError::PipelineCreationFailed(format!("fragment function not found: {fragment_name}"))
+    })?;
 
     let desc = MTLRenderPipelineDescriptor::new();
     desc.setVertexFunction(Some(&vert_func));

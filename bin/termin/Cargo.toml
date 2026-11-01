@@ -14,5 +14,7 @@ path = "src/main.rs"
 [dependencies]
 termin-core.workspace = true
 termin-app.workspace = true
+termin-config.workspace = true
 termin-ipc.workspace = true
 serde_json.workspace = true
+log.workspace = true

@@ -42,14 +42,31 @@ fn test_offscreen_rounded_rect_border_shadow() {
 
     let get_pixel = |x: usize, y: usize| -> (u8, u8, u8, u8) {
         let idx = (y * 200 + x) * 4;
-        (pixels[idx], pixels[idx + 1], pixels[idx + 2], pixels[idx + 3])
+        (
+            pixels[idx],
+            pixels[idx + 1],
+            pixels[idx + 2],
+            pixels[idx + 3],
+        )
     };
 
     // 1. Center of the rect (x=100, y=80) should match fill color #20A040
     let center = get_pixel(100, 80);
-    assert!((center.0 as i32 - 0x20).abs() <= 5, "Red channel at center: {}", center.0);
-    assert!((center.1 as i32 - 0xA0).abs() <= 5, "Green channel at center: {}", center.1);
-    assert!((center.2 as i32 - 0x40).abs() <= 5, "Blue channel at center: {}", center.2);
+    assert!(
+        (center.0 as i32 - 0x20).abs() <= 5,
+        "Red channel at center: {}",
+        center.0
+    );
+    assert!(
+        (center.1 as i32 - 0xA0).abs() <= 5,
+        "Green channel at center: {}",
+        center.1
+    );
+    assert!(
+        (center.2 as i32 - 0x40).abs() <= 5,
+        "Blue channel at center: {}",
+        center.2
+    );
 
     // 2. On the straight border (e.g. x=41, y=80) should be close to white border color #FFFFFF
     let border_px = get_pixel(41, 80);
@@ -59,15 +76,29 @@ fn test_offscreen_rounded_rect_border_shadow() {
 
     // 3. Far outside (x=10, y=10) should be untouched clear background #101820
     let far_outside = get_pixel(10, 10);
-    assert!((far_outside.0 as i32 - 0x10).abs() <= 3, "Far outside red: {}", far_outside.0);
-    assert!((far_outside.1 as i32 - 0x18).abs() <= 3, "Far outside green: {}", far_outside.1);
-    assert!((far_outside.2 as i32 - 0x20).abs() <= 3, "Far outside blue: {}", far_outside.2);
+    assert!(
+        (far_outside.0 as i32 - 0x10).abs() <= 3,
+        "Far outside red: {}",
+        far_outside.0
+    );
+    assert!(
+        (far_outside.1 as i32 - 0x18).abs() <= 3,
+        "Far outside green: {}",
+        far_outside.1
+    );
+    assert!(
+        (far_outside.2 as i32 - 0x20).abs() <= 3,
+        "Far outside blue: {}",
+        far_outside.2
+    );
 
     // 4. In the soft shadow halo outside the edge (x=33, y=80):
     // Shadow is dark, so it darkens the background below the clear color
     let shadow_px = get_pixel(33, 80);
     assert!(
-        shadow_px.0 <= far_outside.0 && shadow_px.1 <= far_outside.1 && shadow_px.2 <= far_outside.2,
+        shadow_px.0 <= far_outside.0
+            && shadow_px.1 <= far_outside.1
+            && shadow_px.2 <= far_outside.2,
         "Shadow pixel {:?} should be darker than or equal to clear background {:?}",
         shadow_px,
         far_outside
@@ -115,7 +146,12 @@ fn test_offscreen_synthetic_atlas_glyphs() {
 
     let get_pixel = |x: usize, y: usize| -> (u8, u8, u8, u8) {
         let idx = (y * 100 + x) * 4;
-        (pixels[idx], pixels[idx + 1], pixels[idx + 2], pixels[idx + 3])
+        (
+            pixels[idx],
+            pixels[idx + 1],
+            pixels[idx + 2],
+            pixels[idx + 3],
+        )
     };
 
     // Pixel inside the glyph (x=24, y=24) should be bright red
@@ -163,7 +199,12 @@ fn test_offscreen_layered_scissor_clipping() {
 
     let get_pixel = |x: usize, y: usize| -> (u8, u8, u8, u8) {
         let idx = (y * 100 + x) * 4;
-        (pixels[idx], pixels[idx + 1], pixels[idx + 2], pixels[idx + 3])
+        (
+            pixels[idx],
+            pixels[idx + 1],
+            pixels[idx + 2],
+            pixels[idx + 3],
+        )
     };
 
     // Pixel inside scissor region (x=50, y=50) must be yellow
@@ -174,9 +215,17 @@ fn test_offscreen_layered_scissor_clipping() {
 
     // Pixel outside scissor region (x=10, y=10) must remain black clear color
     let outside = get_pixel(10, 10);
-    assert_eq!(outside, (0, 0, 0, 255), "Pixel outside scissor was not clipped");
+    assert_eq!(
+        outside,
+        (0, 0, 0, 255),
+        "Pixel outside scissor was not clipped"
+    );
 
     // Pixel outside to the bottom-right (x=80, y=80) must remain black
     let outside_br = get_pixel(80, 80);
-    assert_eq!(outside_br, (0, 0, 0, 255), "Pixel outside scissor was not clipped");
+    assert_eq!(
+        outside_br,
+        (0, 0, 0, 255),
+        "Pixel outside scissor was not clipped"
+    );
 }

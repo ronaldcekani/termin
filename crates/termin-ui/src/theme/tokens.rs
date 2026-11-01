@@ -4,9 +4,9 @@
 
 use std::collections::HashMap;
 use termin_config::{
-    clamp_text_secondary, contrast_ratio, derive_attention_color, derive_neutral_ramp,
-    mix_linear, parse_color, parse_theme, relative_luminance, with_alpha, Theme,
-    BUILTIN_TERMIN_DARK, BUILTIN_TERMIN_LIGHT,
+    clamp_text_secondary, contrast_ratio, derive_attention_color, derive_neutral_ramp, mix_linear,
+    parse_color, parse_theme, relative_luminance, with_alpha, Theme, BUILTIN_TERMIN_DARK,
+    BUILTIN_TERMIN_LIGHT,
 };
 use termin_core::Rgba;
 
@@ -111,10 +111,7 @@ impl Tokens {
     /// Construct design tokens from a theme and user color overrides.
     ///
     /// Implements derivation rules from `docs/design/design-system.md §2.4`.
-    pub fn from_theme_with_overrides(
-        theme: &Theme,
-        overrides: &HashMap<String, String>,
-    ) -> Self {
+    pub fn from_theme_with_overrides(theme: &Theme, overrides: &HashMap<String, String>) -> Self {
         let bg = theme.terminal.background;
         let fg = theme.terminal.foreground;
         let is_dark = theme.is_dark();
@@ -136,9 +133,7 @@ impl Tokens {
         let attention = resolve_str("accent.ember")
             .or_else(|| resolve_str("attention"))
             .and_then(|s| parse_color(s).ok())
-            .unwrap_or_else(|| {
-                derive_attention_color(bg, theme.terminal.ansi[3], is_dark)
-            });
+            .unwrap_or_else(|| derive_attention_color(bg, theme.terminal.ansi[3], is_dark));
 
         // Danger hue: ui."status.danger", ui.danger, or ansi[1] (red)
         let danger = resolve_str("status.danger")
@@ -183,14 +178,8 @@ impl Tokens {
             Rgba::WHITE
         };
 
-        let cursor_val = get_color(
-            "cursor",
-            theme.terminal.cursor.unwrap_or(accent),
-        );
-        let cursor_text_val = get_color(
-            "cursor_text",
-            theme.terminal.cursor_text.unwrap_or(bg),
-        );
+        let cursor_val = get_color("cursor", theme.terminal.cursor.unwrap_or(accent));
+        let cursor_text_val = get_color("cursor_text", theme.terminal.cursor_text.unwrap_or(bg));
         let selection_val = get_color(
             "selection",
             theme
@@ -324,25 +313,28 @@ pub struct ContrastViolation {
 pub fn check_theme_contrast(tokens: &Tokens) -> Vec<ContrastViolation> {
     let mut violations = Vec::new();
 
-    let mut check = |fg_name: &'static str,
-                     fg: Rgba,
-                     bg_name: &'static str,
-                     bg: Rgba,
-                     min_ratio: f32| {
-        let ratio = contrast_ratio(fg, bg);
-        // Small tolerance of 0.05 for float precision
-        if ratio < min_ratio - 0.05 {
-            violations.push(ContrastViolation {
-                foreground_name: fg_name,
-                background_name: bg_name,
-                actual_contrast: ratio,
-                required_contrast: min_ratio,
-            });
-        }
-    };
+    let mut check =
+        |fg_name: &'static str, fg: Rgba, bg_name: &'static str, bg: Rgba, min_ratio: f32| {
+            let ratio = contrast_ratio(fg, bg);
+            // Small tolerance of 0.05 for float precision
+            if ratio < min_ratio - 0.05 {
+                violations.push(ContrastViolation {
+                    foreground_name: fg_name,
+                    background_name: bg_name,
+                    actual_contrast: ratio,
+                    required_contrast: min_ratio,
+                });
+            }
+        };
 
     // 1. Text primary: WCAG AA requires >= 4.5:1
-    check("text.primary", tokens.text_primary, "bg.app", tokens.bg_app, 4.5);
+    check(
+        "text.primary",
+        tokens.text_primary,
+        "bg.app",
+        tokens.bg_app,
+        4.5,
+    );
     check(
         "text.primary",
         tokens.text_primary,
@@ -423,6 +415,91 @@ pub fn check_theme_contrast(tokens: &Tokens) -> Vec<ContrastViolation> {
     violations
 }
 
+/// Motion tokens providing reduced-motion aware animation timings and calculations.
+///
+/// See `docs/design/design-system.md §7`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MotionTokens {
+    /// Whether reduced motion is active (e.g. `NSWorkspace.accessibilityDisplayShouldReduceMotion`).
+    pub reduced_motion: bool,
+}
+
+impl MotionTokens {
+    /// Instant motion duration (0 ms) for focus changes, selection.
+    pub const DURATION_INSTANT: std::time::Duration = std::time::Duration::ZERO;
+    /// Fast motion duration (90 ms) for hover fades, tab close.
+    pub const DURATION_FAST: std::time::Duration = std::time::Duration::from_millis(90);
+    /// Base motion duration (140 ms) for palette/menu appearance.
+    pub const DURATION_BASE: std::time::Duration = std::time::Duration::from_millis(140);
+    /// Slow motion duration (200 ms) for sidebar toggle, editor height change.
+    pub const DURATION_SLOW: std::time::Duration = std::time::Duration::from_millis(200);
+    /// Duration of a single attention pulse cycle (1100 ms).
+    pub const DURATION_ATTENTION_CYCLE: std::time::Duration = std::time::Duration::from_millis(1100);
+    /// Standard attention pulse repeat count (3 cycles).
+    pub const ATTENTION_CYCLES: u32 = 3;
+    /// Total duration of pulsing attention ring before steady state (3.3s).
+    pub const DURATION_ATTENTION_TOTAL: std::time::Duration = std::time::Duration::from_millis(3300);
+    /// Spinner cycle duration (900 ms per revolution).
+    pub const DURATION_SPINNER_REV: std::time::Duration = std::time::Duration::from_millis(900);
+
+    /// Create motion tokens with the specified reduced-motion mode.
+    pub fn new(reduced_motion: bool) -> Self {
+        Self { reduced_motion }
+    }
+
+    /// Return effective animation duration respecting reduced motion.
+    /// Under reduced motion, all transition durations collapse to Duration::ZERO.
+    pub fn duration(&self, base_duration: std::time::Duration) -> std::time::Duration {
+        if self.reduced_motion {
+            std::time::Duration::ZERO
+        } else {
+            base_duration
+        }
+    }
+
+    /// Calculate opacity transition progress (0.0 to 1.0) given elapsed time and nominal duration.
+    /// Under reduced motion, returns 1.0 immediately for any elapsed > 0 (instant opacity fade).
+    pub fn opacity_fade(
+        &self,
+        elapsed: std::time::Duration,
+        nominal_duration: std::time::Duration,
+    ) -> f32 {
+        if self.reduced_motion || nominal_duration.is_zero() {
+            1.0
+        } else {
+            (elapsed.as_secs_f32() / nominal_duration.as_secs_f32()).clamp(0.0, 1.0)
+        }
+    }
+
+    /// Calculate spatial translation slide offset (in points).
+    /// Under reduced motion, spatial translation is completely suppressed (returns 0.0 pt).
+    pub fn spatial_slide(&self, max_offset_pt: f32, progress: f32) -> f32 {
+        if self.reduced_motion {
+            0.0
+        } else {
+            max_offset_pt * (1.0 - progress.clamp(0.0, 1.0))
+        }
+    }
+
+    /// Calculate attention ring alpha factor.
+    ///
+    /// Per `design-system.md §7`:
+    /// When `reduced_motion` is true or after 3 cycles (3 * 1.1s = 3.3s), the attention
+    /// ring is steady without pulsing (alpha = 1.0).
+    /// Otherwise, it smoothly pulses between 0.35 and 1.0 via an ease-in-out sine wave.
+    pub fn attention_alpha(&self, elapsed_secs: f32) -> f32 {
+        if self.reduced_motion || elapsed_secs >= 3.3 {
+            1.0
+        } else {
+            let cycle = 1.1; // 1100 ms
+            let progress = (elapsed_secs.max(0.0) % cycle) / cycle;
+            // alpha 100% -> 35% -> 100% via ease-in-out sine
+            let factor = 0.5 * (1.0 + (progress * std::f32::consts::TAU).cos());
+            0.35 + 0.65 * factor
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,5 +555,54 @@ mod tests {
             "Derived tokens contrast violations: {:?}",
             violations
         );
+    }
+
+    #[test]
+    fn test_motion_tokens_reduced_motion() {
+        let normal = MotionTokens::new(false);
+        let reduced = MotionTokens::new(true);
+
+        // Durations
+        assert_eq!(
+            normal.duration(MotionTokens::DURATION_BASE),
+            MotionTokens::DURATION_BASE
+        );
+        assert_eq!(
+            reduced.duration(MotionTokens::DURATION_BASE),
+            std::time::Duration::ZERO
+        );
+
+        // Opacity fade
+        assert_eq!(
+            reduced.opacity_fade(
+                std::time::Duration::from_millis(10),
+                MotionTokens::DURATION_BASE
+            ),
+            1.0
+        );
+        assert!(
+            normal.opacity_fade(
+                std::time::Duration::from_millis(70),
+                MotionTokens::DURATION_BASE
+            ) < 1.0
+        );
+
+        // Spatial slide suppressed under reduced motion
+        assert_eq!(reduced.spatial_slide(4.0, 0.0), 0.0);
+        assert_eq!(normal.spatial_slide(4.0, 0.0), 4.0);
+        assert_eq!(normal.spatial_slide(4.0, 1.0), 0.0);
+
+        // Attention ring steady under reduced motion
+        assert_eq!(reduced.attention_alpha(0.0), 1.0);
+        assert_eq!(reduced.attention_alpha(0.55), 1.0);
+        assert_eq!(reduced.attention_alpha(1.1), 1.0);
+
+        // Attention ring pulses under normal motion and becomes steady after 3.3s
+        let alpha_mid = normal.attention_alpha(0.55);
+        assert!(
+            (alpha_mid - 0.35).abs() < 0.05,
+            "mid cycle alpha should be ~0.35, got {alpha_mid}"
+        );
+        assert_eq!(normal.attention_alpha(3.5), 1.0);
     }
 }

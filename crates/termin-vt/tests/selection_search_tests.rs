@@ -91,7 +91,15 @@ fn test_search_hot_and_cold_scrollback() {
         case_sensitive: true,
         whole_word: false,
     };
-    let m1 = term.search(&q1, AbsPos { line: AbsLine(term.total_lines()), col: 80 }).unwrap();
+    let m1 = term
+        .search(
+            &q1,
+            AbsPos {
+                line: AbsLine(term.total_lines()),
+                col: 80,
+            },
+        )
+        .unwrap();
     assert!(m1.start.col > 0);
 
     // Search for needle_alpha (scrolled back in hot scrollback ring)
@@ -100,7 +108,15 @@ fn test_search_hot_and_cold_scrollback() {
         case_sensitive: true,
         whole_word: false,
     };
-    let m2 = term.search(&q2, AbsPos { line: AbsLine(term.total_lines()), col: 80 }).unwrap();
+    let m2 = term
+        .search(
+            &q2,
+            AbsPos {
+                line: AbsLine(term.total_lines()),
+                col: 80,
+            },
+        )
+        .unwrap();
     assert_eq!(m2.start.line, AbsLine(0));
 
     // Incremental search stepping

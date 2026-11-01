@@ -38,7 +38,7 @@ pub struct Scrollback {
 
 impl Scrollback {
     pub fn new(cols: u16, screen_rows: u16, max_scrollback: u32) -> Self {
-        let hot_scrollback = (2 * screen_rows as usize).clamp(200, 2000);
+        let hot_scrollback = (2 * screen_rows as usize).clamp(128, 1024);
         let hot_capacity = hot_scrollback;
         Self {
             hot_ring: VecDeque::with_capacity(hot_capacity),
@@ -55,18 +55,13 @@ impl Scrollback {
 
     /// Update screen dimensions and recalculate hot capacity.
     pub fn resize(&mut self, cols: u16, screen_rows: u16) {
-        self.hot_capacity = (2 * screen_rows as usize).clamp(200, 2000);
+        self.hot_capacity = (2 * screen_rows as usize).clamp(128, 1024);
         self.cold_tier.invalidate_cache();
         self.row_pool = RowPool::new(cols);
     }
 
     /// Push an evicted screen row into the hot scrollback ring.
-    pub fn push(
-        &mut self,
-        row: Row,
-        styles: &StyleTable,
-        graphemes: &GraphemeTable,
-    ) {
+    pub fn push(&mut self, row: Row, styles: &StyleTable, graphemes: &GraphemeTable) {
         self.total_pushed += 1;
 
         if self.hot_ring.len() >= self.hot_capacity {
@@ -78,6 +73,31 @@ impl Scrollback {
                 }
                 // Recycle the evicted row allocation
                 self.row_pool.recycle(oldest);
+            }
+        }
+
+        self.hot_ring.push_back(row);
+    }
+
+    /// Push an evicted screen row into the hot scrollback ring, recycling any
+    /// evicted hot-ring row into `pool`.
+    #[inline]
+    pub fn push_into_pool(
+        &mut self,
+        row: Row,
+        styles: &StyleTable,
+        graphemes: &GraphemeTable,
+        pool: &mut RowPool,
+    ) {
+        self.total_pushed += 1;
+
+        if self.hot_ring.len() >= self.hot_capacity {
+            if let Some(oldest) = self.hot_ring.pop_front() {
+                self.hot_base_line += 1;
+                if let Some(chunk) = self.cold_builder.push_row(&oldest, styles, graphemes) {
+                    self.cold_tier.push_chunk(chunk);
+                }
+                pool.recycle(oldest);
             }
         }
 
@@ -164,5 +184,41 @@ mod tests {
         // Check latest row in hot ring
         let last_hot = sb.hot_ring.back().unwrap();
         assert_eq!(last_hot.get(0).ch, '9' as u32);
+    }
+
+    #[test]
+    fn long_soft_wrapped_line_is_not_split_when_evicted_past_chunk_threshold() {
+        let mut sb = Scrollback::new(80, 24, 10_000);
+        sb.hot_capacity = 1;
+        let styles = StyleTable::new();
+        let graphemes = GraphemeTable::new();
+        let row_count = 820usize;
+
+        for idx in 0..row_count {
+            let mut row = Row::new(80);
+            for col in 0..80 {
+                row.get_mut(col).ch = 'a' as u32;
+            }
+            row.update_len();
+            if idx + 1 < row_count {
+                row.flags.insert(crate::row::RowFlags::WRAPPED);
+            }
+            sb.push(row, &styles, &graphemes);
+        }
+
+        // All but the final row have been evicted. The builder has crossed
+        // 64 KiB but must retain the still-open logical line.
+        assert!(sb.cold_tier.chunks.is_empty());
+        let pending = sb.cold_builder.snapshot_chunk().unwrap();
+        assert_eq!(pending.line_count, 1);
+        assert_eq!(pending.get_line(0).unwrap().len(), (row_count - 1) * 80);
+
+        // Evicting the final non-WRAPPED row completes and seals the whole line.
+        sb.push(Row::new(80), &styles, &graphemes);
+        assert_eq!(sb.cold_tier.chunks.len(), 1);
+        let sealed = &sb.cold_tier.chunks[0];
+        assert_eq!(sealed.line_count, 1);
+        assert_eq!(sealed.get_line(0).unwrap().len(), row_count * 80);
+        assert!(sealed.get_line(0).unwrap().chars().all(|ch| ch == 'a'));
     }
 }

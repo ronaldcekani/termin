@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag override (e.g. v1.0.0)'
+        required: false
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build, Package, Codesign & Release
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: |
+          rustup show
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Check binary and resource sizes vs budgets
+        run: cargo xtask size
+
+      - name: Setup Apple Developer ID Certificate in Keychain
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'temporary-termin-keychain' }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          CERTIFICATE_PATH=$RUNNER_TEMP/developer_id.p12
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Build Release Binaries
+        run: |
+          cargo build --release --target aarch64-apple-darwin -p termin
+          cargo build --release --target x86_64-apple-darwin -p termin
+
+      - name: Assemble arm64 Application Bundle
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          mkdir -p dist
+          cargo xtask bundle --target aarch64-apple-darwin --archive --out-dir target/release/bundle-arm64
+          cp target/release/bundle-arm64/Termin-macos-arm64.zip dist/Termin-macos-arm64.zip
+
+      - name: Assemble Universal Application Bundle and DMG
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          cargo xtask bundle --universal --archive --dmg --out-dir target/release/bundle-universal
+
+      - name: Apple Hardened Runtime Codesign
+        if: env.APPLE_SIGNING_IDENTITY != ''
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          codesign --force --deep --options runtime --timestamp \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            target/release/bundle-universal/Termin.app
+          codesign --verify --deep --strict --verbose=2 target/release/bundle-universal/Termin.app
+
+      - name: Apple Notarization and Stapling
+        if: env.APPLE_NOTARY_API_KEY != ''
+        env:
+          APPLE_NOTARY_API_KEY: ${{ secrets.APPLE_NOTARY_API_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          NOTARY_KEY_PATH=$RUNNER_TEMP/notary_key.p8
+          echo "$APPLE_NOTARY_API_KEY" > "$NOTARY_KEY_PATH"
+
+          # Create zip for notarization
+          ditto -c -k --keepParent \
+            target/release/bundle-universal/Termin.app \
+            target/release/bundle-universal/Termin-to-notarize.zip
+
+          # Submit to Apple notarytool
+          xcrun notarytool submit target/release/bundle-universal/Termin-to-notarize.zip \
+            --key "$NOTARY_KEY_PATH" \
+            --key-id "$APPLE_NOTARY_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" \
+            --wait
+
+          # Staple ticket to app bundle and dmg
+          xcrun stapler staple target/release/bundle-universal/Termin.app
+          if [ -f target/release/bundle-universal/Termin.dmg ]; then
+            xcrun stapler staple target/release/bundle-universal/Termin.dmg
+          fi
+
+          # Validate stapling
+          xcrun stapler validate target/release/bundle-universal/Termin.app
+          spctl --assess --type execute --verbose target/release/bundle-universal/Termin.app
+
+      - name: Package Final Distribution Artifacts
+        run: |
+          # Final universal zip archive
+          ditto -c -k --keepParent \
+            target/release/bundle-universal/Termin.app \
+            dist/Termin-macos-universal.zip
+
+          # Copy DMG if generated
+          if [ -f target/release/bundle-universal/Termin.dmg ]; then
+            cp target/release/bundle-universal/Termin.dmg dist/Termin.dmg
+          fi
+
+          # Generate checksums
+          cd dist
+          shasum -a 256 * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Termin-macos-arm64.zip
+            dist/Termin-macos-universal.zip
+            dist/Termin.dmg
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false

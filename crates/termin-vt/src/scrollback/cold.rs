@@ -10,16 +10,16 @@ use crate::cell::{CellFlags, Style};
 use crate::row::Row;
 use crate::style::{GraphemeTable, StyleTable};
 
-/// A run of bytes sharing the same resolved style.
-#[derive(Clone, Debug, PartialEq)]
+/// A run of bytes sharing the same chunk-local style index (4 bytes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StyleRun {
     pub byte_len: u16,
-    pub style: Style,
+    pub style_idx: u16,
 }
 
 /// A compact immutable chunk of historical scrollback lines.
 ///
-/// Stores UTF-8 text with resolved style runs, width-independent so reflow is free.
+/// Stores UTF-8 text with deduplicated chunk-local style runs, width-independent so reflow is free.
 /// See `docs/specs/terminal-core.md §3.2`.
 #[derive(Clone, Debug)]
 pub struct ColdChunk {
@@ -28,6 +28,7 @@ pub struct ColdChunk {
     pub text: Box<[u8]>,
     pub line_ends: Box<[u32]>,
     pub runs: Box<[StyleRun]>,
+    pub styles: Box<[Style]>,
     pub wrapped_rows_cache: StdCell<Option<(u16, u32)>>,
     pub compressed: bool,
 }
@@ -128,7 +129,9 @@ impl ColdChunk {
                 }
 
                 let style = if run_idx < self.runs.len() {
-                    styles.insert(self.runs[run_idx].style)
+                    let s_idx = self.runs[run_idx].style_idx as usize;
+                    let resolved = self.styles.get(s_idx).copied().unwrap_or_default();
+                    styles.insert(resolved)
                 } else {
                     0
                 };
@@ -192,7 +195,7 @@ impl ColdChunk {
 }
 
 /// Accumulator building `ColdChunk`s from logical lines.
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct ColdBuilder {
     first_line: u64,
     current_line: u64,
@@ -200,6 +203,7 @@ pub struct ColdBuilder {
     text: Vec<u8>,
     line_ends: Vec<u32>,
     runs: Vec<StyleRun>,
+    styles: Vec<Style>,
     // Current logical line buffer
     pending_text: String,
     pending_runs: Vec<StyleRun>,
@@ -214,6 +218,7 @@ impl ColdBuilder {
             text: Vec::with_capacity(4096),
             line_ends: Vec::with_capacity(256),
             runs: Vec::with_capacity(256),
+            styles: Vec::with_capacity(16),
             pending_text: String::with_capacity(128),
             pending_runs: Vec::with_capacity(16),
         }
@@ -230,8 +235,69 @@ impl ColdBuilder {
         graphemes: &GraphemeTable,
     ) -> Option<ColdChunk> {
         let is_wrapped = row.flags.contains(crate::row::RowFlags::WRAPPED);
-
         let cells = row.content_cells();
+
+        // Fast path for non-wrapped lines when no wrapped prefix is pending:
+        // write directly into `self.text` and `self.runs` without intermediate `pending_text` copy.
+        if !is_wrapped && self.pending_text.is_empty() {
+            let mut cell_idx = 0;
+            while cell_idx < cells.len() {
+                let current_style_idx = cells[cell_idx].style;
+                let style = styles.get_or_default(current_style_idx);
+                let start_byte_len = self.text.len();
+
+                while cell_idx < cells.len() && cells[cell_idx].style == current_style_idx {
+                    let cell = &cells[cell_idx];
+                    cell_idx += 1;
+                    if cell.flags.contains(CellFlags::WIDE_SPACER) {
+                        continue;
+                    }
+                    if cell.ch < 128 {
+                        self.text.push(cell.ch as u8);
+                    } else if let Some(g) = cell.grapheme_index().and_then(|i| graphemes.get(i)) {
+                        self.text.extend_from_slice(g.as_bytes());
+                    } else if let Some(c) = char::from_u32(cell.ch) {
+                        let mut buf = [0u8; 4];
+                        self.text
+                            .extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+                    } else {
+                        self.text.push(b' ');
+                    }
+                }
+
+                let added_bytes = (self.text.len() - start_byte_len) as u16;
+                if added_bytes > 0 {
+                    let style_idx = self.intern_style(style);
+                    if let Some(last) = self.runs.last_mut() {
+                        if last.style_idx == style_idx
+                            && (last.byte_len as usize + added_bytes as usize) <= u16::MAX as usize
+                        {
+                            last.byte_len += added_bytes;
+                        } else {
+                            self.runs.push(StyleRun {
+                                byte_len: added_bytes,
+                                style_idx,
+                            });
+                        }
+                    } else {
+                        self.runs.push(StyleRun {
+                            byte_len: added_bytes,
+                            style_idx,
+                        });
+                    }
+                }
+            }
+
+            self.line_ends.push(self.text.len() as u32);
+            self.lines += 1;
+            self.current_line += 1;
+
+            if self.lines >= 256 || self.text.len() >= 64 * 1024 {
+                return Some(self.seal());
+            }
+            return None;
+        }
+
         let mut cell_idx = 0;
 
         while cell_idx < cells.len() {
@@ -269,27 +335,56 @@ impl ColdBuilder {
             self.finish_line();
         }
 
-        if self.lines >= 256 || self.text.len() >= 64 * 1024 {
+        // Keep a logical line intact across chunks. A soft-wrapped row means
+        // more text for this line may still arrive, so the byte threshold may
+        // be exceeded until its terminating row is evicted.
+        if !is_wrapped && (self.lines >= 256 || self.text.len() >= 64 * 1024) {
             Some(self.seal())
         } else {
             None
         }
     }
 
+    fn intern_style(&mut self, style: Style) -> u16 {
+        if let Some(pos) = self.styles.iter().position(|s| *s == style) {
+            pos as u16
+        } else {
+            let idx = self.styles.len() as u16;
+            self.styles.push(style);
+            idx
+        }
+    }
+
     fn add_run(&mut self, byte_len: u16, style: Style) {
+        let style_idx = self.intern_style(style);
         if let Some(last) = self.pending_runs.last_mut() {
-            if last.style == style && (last.byte_len as usize + byte_len as usize) <= u16::MAX as usize {
+            if last.style_idx == style_idx
+                && (last.byte_len as usize + byte_len as usize) <= u16::MAX as usize
+            {
                 last.byte_len += byte_len;
                 return;
             }
         }
-        self.pending_runs.push(StyleRun { byte_len, style });
+        self.pending_runs.push(StyleRun {
+            byte_len,
+            style_idx,
+        });
     }
 
     fn finish_line(&mut self) {
         self.text.extend_from_slice(self.pending_text.as_bytes());
         self.line_ends.push(self.text.len() as u32);
-        self.runs.append(&mut self.pending_runs);
+        for run in self.pending_runs.drain(..) {
+            if let Some(last) = self.runs.last_mut() {
+                if last.style_idx == run.style_idx
+                    && (last.byte_len as usize + run.byte_len as usize) <= u16::MAX as usize
+                {
+                    last.byte_len += run.byte_len;
+                    continue;
+                }
+            }
+            self.runs.push(run);
+        }
         self.pending_text.clear();
         self.lines += 1;
         self.current_line += 1;
@@ -307,6 +402,7 @@ impl ColdBuilder {
             text: std::mem::take(&mut self.text).into_boxed_slice(),
             line_ends: std::mem::take(&mut self.line_ends).into_boxed_slice(),
             runs: std::mem::take(&mut self.runs).into_boxed_slice(),
+            styles: std::mem::take(&mut self.styles).into_boxed_slice(),
             wrapped_rows_cache: StdCell::new(None),
             compressed: false,
         };
@@ -318,6 +414,17 @@ impl ColdBuilder {
 
     pub fn is_empty(&self) -> bool {
         self.lines == 0 && self.pending_text.is_empty()
+    }
+
+    /// Snapshot the in-progress history as a chunk without mutating this builder.
+    /// Wrapped rows already accumulated in `pending_text` are encoded together,
+    /// so decoding the snapshot yields the current physical rows at any width.
+    pub fn snapshot_chunk(&self) -> Option<ColdChunk> {
+        if self.is_empty() {
+            return None;
+        }
+        let mut snapshot = self.clone();
+        Some(snapshot.seal())
     }
 }
 

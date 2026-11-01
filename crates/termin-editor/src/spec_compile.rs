@@ -28,7 +28,9 @@ pub fn compile_specs_to_rust(specs: &[CommandSpec]) -> String {
     }
     out.push_str("];\n\n");
 
-    out.push_str("pub fn find_compiled_spec(name_or_alias: &str) -> Option<&'static StaticCommandSpec> {\n");
+    out.push_str(
+        "pub fn find_compiled_spec(name_or_alias: &str) -> Option<&'static StaticCommandSpec> {\n",
+    );
     out.push_str("    COMPILED_SPECS\n");
     out.push_str("        .iter()\n");
     out.push_str("        .find(|spec| spec.name == name_or_alias || spec.aliases.contains(&name_or_alias))\n");
@@ -38,7 +40,10 @@ pub fn compile_specs_to_rust(specs: &[CommandSpec]) -> String {
 }
 
 fn emit_command_spec(out: &mut String, ident: &str, spec: &CommandSpec) {
-    out.push_str(&format!("pub static {}: StaticCommandSpec = StaticCommandSpec {{\n", ident));
+    out.push_str(&format!(
+        "pub static {}: StaticCommandSpec = StaticCommandSpec {{\n",
+        ident
+    ));
     out.push_str(&format!("    name: {:?},\n", spec.name));
     out.push_str(&format!("    aliases: &{:?},\n", spec.aliases));
     out.push_str(&format!("    description: {:?},\n", spec.description));
@@ -122,7 +127,10 @@ fn emit_arg_spec(out: &mut String, arg: &ArgSpec, indent_level: usize) {
     out.push_str(&format!("{}    name: {:?},\n", ind, arg.name));
     out.push_str(&format!("{}    optional: {:?},\n", ind, arg.optional));
     out.push_str(&format!("{}    variadic: {:?},\n", ind, arg.variadic));
-    out.push_str(&format!("{}    suggestions: &{:?},\n", ind, arg.suggestions));
+    out.push_str(&format!(
+        "{}    suggestions: &{:?},\n",
+        ind, arg.suggestions
+    ));
     out.push_str(&format!("{}    generators: &{:?},\n", ind, arg.generators));
     let t_str = match &arg.template {
         Some(t) => format!("Some({:?})", t),

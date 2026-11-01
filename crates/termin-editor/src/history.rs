@@ -2,9 +2,9 @@
 //!
 //! See `docs/specs/input-editor.md §3`.
 
-use std::hash::{Hash, Hasher};
-use rustc_hash::FxHashMap;
 use nucleo_matcher::{Config, Matcher, Utf32Str};
+use rustc_hash::FxHashMap;
+use std::hash::{Hash, Hasher};
 
 use crate::editor::Suggestion;
 
@@ -540,7 +540,9 @@ pub fn parse_zsh_history_bytes(bytes: &[u8], default_cwd: &str) -> Vec<HistoryEn
 
         // Read command, handling multi-line continuations (trailing `\`)
         while i < len {
-            let next_nl = memchr::memchr(b'\n', &bytes[i..]).map(|pos| i + pos).unwrap_or(len);
+            let next_nl = memchr::memchr(b'\n', &bytes[i..])
+                .map(|pos| i + pos)
+                .unwrap_or(len);
             let mut chunk_end = next_nl;
             if chunk_end > i && bytes[chunk_end - 1] == b'\r' {
                 chunk_end -= 1;
@@ -573,7 +575,10 @@ pub fn parse_zsh_history_bytes(bytes: &[u8], default_cwd: &str) -> Vec<HistoryEn
                 let cmd = &rest[semi_pos + 1..];
 
                 let mut meta_parts = meta.split(':');
-                let ts = meta_parts.next().and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0);
+                let ts = meta_parts
+                    .next()
+                    .and_then(|s| s.trim().parse::<u64>().ok())
+                    .unwrap_or(0);
                 let dur = meta_parts.next().and_then(|s| s.trim().parse::<u64>().ok());
 
                 entries.push(HistoryEntry {

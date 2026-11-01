@@ -2,21 +2,82 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleExecutable</key>
-    <string>termin</string>
-    <key>CFBundleIdentifier</key>
-    <string>dev.termin.Termin</string>
-    <key>CFBundleName</key>
-    <string>Termin</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Termin</string>
+    <key>CFBundleDisplayName</key>
+    <string>Termin</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.termin.Termin</string>
+    <key>CFBundleExecutable</key>
+    <string>termin</string>
+    <key>CFBundleIconFile</key>
+    <string>Termin.icns</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>{{VERSION}}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>{{VERSION}}</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Termin Contributors</string>
+    <key>NSSupportsSuddenTermination</key>
+    <false/>
+    <key>ATSApplicationFontsPath</key>
+    <string>.</string>
+    <key>NSUserNotificationAlertStyle</key>
+    <string>banner</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>dev.termin.Termin.url</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>termin</string>
+                <string>ssh</string>
+            </array>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Terminal Script</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>sh</string>
+                <string>command</string>
+                <string>zsh</string>
+                <string>bash</string>
+                <string>fish</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Folders</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>CFBundleTypeOSTypes</key>
+            <array>
+                <string>fold</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

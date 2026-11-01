@@ -4,9 +4,7 @@
 //! Gate: 10 000 lines × 120 cols of typical colored build log ≤ 2.5 MiB.
 
 use std::mem::size_of;
-use termin_vt::{
-    Cell, Effect, EffectSink, Terminal, TerminalConfig,
-};
+use termin_vt::{Cell, Effect, EffectSink, Terminal, TerminalConfig};
 
 struct DummySink;
 impl EffectSink for DummySink {
@@ -45,7 +43,8 @@ fn test_memory_budget_10k_lines_colored_log() {
     let mut total_bytes = 0usize;
 
     // 1. Grid screen rows
-    total_bytes += cfg.rows as usize * (size_of::<termin_vt::Row>() + cfg.cols as usize * size_of::<Cell>());
+    total_bytes +=
+        cfg.rows as usize * (size_of::<termin_vt::Row>() + cfg.cols as usize * size_of::<Cell>());
 
     // 2. Hot scrollback ring
     let hot_len = term.view(termin_vt::ScrollPos::Bottom).count();
@@ -62,6 +61,12 @@ fn test_memory_budget_10k_lines_colored_log() {
     // Total cold tier footprint is ~2.0 MiB.
     let budget_2_5_mib = (2.5 * 1024.0 * 1024.0) as usize;
 
-    println!("Total calculated retained bytes for 10k lines: {} (budget: {})", total_bytes, budget_2_5_mib);
-    assert!(total_bytes <= budget_2_5_mib, "exceeded 2.5 MiB budget for 10k lines");
+    println!(
+        "Total calculated retained bytes for 10k lines: {} (budget: {})",
+        total_bytes, budget_2_5_mib
+    );
+    assert!(
+        total_bytes <= budget_2_5_mib,
+        "exceeded 2.5 MiB budget for 10k lines"
+    );
 }

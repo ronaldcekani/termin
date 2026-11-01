@@ -23,7 +23,11 @@ mod tests {
     #[test]
     fn test_codec_request_round_trip() {
         let mut codec = IpcCodec::new();
-        let req = Request::new(42, "split", serde_json::json!({"direction": "right", "pane": 12}));
+        let req = Request::new(
+            42,
+            "split",
+            serde_json::json!({"direction": "right", "pane": 12}),
+        );
         let encoded = IpcCodec::encode_request(&req).unwrap();
         assert!(encoded.ends_with(b"\n"));
 
@@ -51,7 +55,10 @@ mod tests {
         let err_resp = Response::error(2, "not_found", "pane 99");
         let encoded_err = IpcCodec::encode_response(&err_resp).unwrap();
         codec.feed(&encoded_err).unwrap();
-        let decoded_err = codec.decode_response().unwrap().expect("error response decoded");
+        let decoded_err = codec
+            .decode_response()
+            .unwrap()
+            .expect("error response decoded");
         assert_eq!(decoded_err.id, 2);
         assert_eq!(decoded_err.error.unwrap().code, "not_found");
 
@@ -70,7 +77,10 @@ mod tests {
         // Buffer larger than 1 MiB without newline
         let huge = vec![b'a'; MAX_LINE_BYTES + 10];
         let res = codec.feed(&huge);
-        assert!(res.is_err(), "Exceeding max line without newline should error");
+        assert!(
+            res.is_err(),
+            "Exceeding max line without newline should error"
+        );
     }
 
     #[test]
@@ -86,7 +96,10 @@ mod tests {
 
         // Feed terminating newline
         codec.feed(b"\n").unwrap();
-        let req = codec.decode_request().unwrap().expect("should decode after newline");
+        let req = codec
+            .decode_request()
+            .unwrap()
+            .expect("should decode after newline");
         assert_eq!(req.id, 10);
         assert_eq!(req.method, "ping");
     }
@@ -94,14 +107,19 @@ mod tests {
     #[test]
     fn test_codec_malformed_json_recovery() {
         let mut codec = IpcCodec::new();
-        codec.feed(b"this is not valid json\n{\"id\":1,\"method\":\"ok\",\"params\":{}}\n").unwrap();
+        codec
+            .feed(b"this is not valid json\n{\"id\":1,\"method\":\"ok\",\"params\":{}}\n")
+            .unwrap();
 
         // First line is malformed
         let err = codec.decode_request();
         assert!(err.is_err());
 
         // Second line succeeds
-        let next = codec.decode_request().unwrap().expect("valid request decoded");
+        let next = codec
+            .decode_request()
+            .unwrap()
+            .expect("valid request decoded");
         assert_eq!(next.id, 1);
         assert_eq!(next.method, "ok");
     }

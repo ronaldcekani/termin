@@ -118,8 +118,12 @@ pub type CVDisplayLinkOutputCallback = unsafe extern "C" fn(
 
 #[link(name = "CoreVideo", kind = "framework")]
 extern "C" {
-    fn CVDisplayLinkCreateWithActiveCGDisplays(display_link_out: *mut *mut std::ffi::c_void) -> i32;
-    fn CVDisplayLinkSetCurrentCGDisplay(display_link: *mut std::ffi::c_void, display_id: u32) -> i32;
+    fn CVDisplayLinkCreateWithActiveCGDisplays(display_link_out: *mut *mut std::ffi::c_void)
+        -> i32;
+    fn CVDisplayLinkSetCurrentCGDisplay(
+        display_link: *mut std::ffi::c_void,
+        display_id: u32,
+    ) -> i32;
     fn CVDisplayLinkSetOutputCallback(
         display_link: *mut std::ffi::c_void,
         callback: CVDisplayLinkOutputCallback,
@@ -159,11 +163,7 @@ unsafe extern "C" fn cv_display_link_callback(
 ) -> i32 {
     let win_id = WindowId(context as usize as u32);
     if crate::macos::app::should_cv_dispatch(win_id) {
-        dispatch_async_f(
-            main_dispatch_queue(),
-            context,
-            cv_main_dispatch_callback,
-        );
+        dispatch_async_f(main_dispatch_queue(), context, cv_main_dispatch_callback);
     }
     0
 }
@@ -250,9 +250,7 @@ pub fn create_display_link(
 
     let ctx = win_id.0 as usize as *mut std::ffi::c_void;
     // SAFETY: Setting output callback for CVDisplayLink.
-    let cb_status = unsafe {
-        CVDisplayLinkSetOutputCallback(link, cv_display_link_callback, ctx)
-    };
+    let cb_status = unsafe { CVDisplayLinkSetOutputCallback(link, cv_display_link_callback, ctx) };
     if cb_status != 0 {
         log::warn!("Failed to set CVDisplayLink callback: status {}", cb_status);
         // SAFETY: Releasing allocated link on callback failure.

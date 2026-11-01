@@ -295,11 +295,41 @@ mod tests {
         let mut blocks = BlockList::new();
         let mut graphemes = crate::style::GraphemeTable::new();
 
-        grid.print_char('a', 0, crate::modes::Modes::AUTOWRAP, &mut pool, &mut graphemes);
-        grid.print_char('b', 0, crate::modes::Modes::AUTOWRAP, &mut pool, &mut graphemes);
-        grid.print_char('c', 0, crate::modes::Modes::AUTOWRAP, &mut pool, &mut graphemes);
-        grid.print_char('d', 0, crate::modes::Modes::AUTOWRAP, &mut pool, &mut graphemes);
-        grid.print_char('e', 0, crate::modes::Modes::AUTOWRAP, &mut pool, &mut graphemes);
+        grid.print_char(
+            'a',
+            0,
+            crate::modes::Modes::AUTOWRAP,
+            &mut pool,
+            &mut graphemes,
+        );
+        grid.print_char(
+            'b',
+            0,
+            crate::modes::Modes::AUTOWRAP,
+            &mut pool,
+            &mut graphemes,
+        );
+        grid.print_char(
+            'c',
+            0,
+            crate::modes::Modes::AUTOWRAP,
+            &mut pool,
+            &mut graphemes,
+        );
+        grid.print_char(
+            'd',
+            0,
+            crate::modes::Modes::AUTOWRAP,
+            &mut pool,
+            &mut graphemes,
+        );
+        grid.print_char(
+            'e',
+            0,
+            crate::modes::Modes::AUTOWRAP,
+            &mut pool,
+            &mut graphemes,
+        );
 
         // Grid had 4 cols, printed "abcde" -> row 0: "abcd", row 1: "e"
         assert_eq!(grid.rows[0].get(0).ch, 'a' as u32);

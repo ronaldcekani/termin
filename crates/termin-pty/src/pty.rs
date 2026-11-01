@@ -73,10 +73,18 @@ extern "C" {
     fn dup2(oldfd: std::os::raw::c_int, newfd: std::os::raw::c_int) -> std::os::raw::c_int;
     fn close(fd: std::os::raw::c_int) -> std::os::raw::c_int;
     #[link_name = "open"]
-    fn libc_open(path: *const std::os::raw::c_char, oflag: std::os::raw::c_int, ...) -> std::os::raw::c_int;
+    fn libc_open(
+        path: *const std::os::raw::c_char,
+        oflag: std::os::raw::c_int,
+        ...
+    ) -> std::os::raw::c_int;
     fn chdir(path: *const std::os::raw::c_char) -> std::os::raw::c_int;
     fn sigemptyset(set: *mut libc_sigset_t) -> std::os::raw::c_int;
-    fn sigprocmask(how: std::os::raw::c_int, set: *const libc_sigset_t, oset: *mut libc_sigset_t) -> std::os::raw::c_int;
+    fn sigprocmask(
+        how: std::os::raw::c_int,
+        set: *const libc_sigset_t,
+        oset: *mut libc_sigset_t,
+    ) -> std::os::raw::c_int;
     fn signal(signum: std::os::raw::c_int, handler: usize) -> usize;
     fn tcsetpgrp(fd: std::os::raw::c_int, pgrp: std::os::raw::c_int) -> std::os::raw::c_int;
     fn tcgetpgrp(fd: std::os::raw::c_int) -> std::os::raw::c_int;
@@ -117,8 +125,8 @@ pub fn open_pty(cols: u16, rows: u16, px: (u16, u16)) -> io::Result<(PtyMaster, 
     grantpt(&master).map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))?;
     unlockpt(&master).map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))?;
 
-    let slave_name = ptsname(&master, Vec::new())
-        .map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))?;
+    let slave_name =
+        ptsname(&master, Vec::new()).map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))?;
 
     // Open slave temporarily to initialize BSD line discipline on macOS
     let slave = open(
@@ -257,16 +265,11 @@ pub fn spawn(spec: &SpawnSpec) -> io::Result<PtyChild> {
     let pid = Pid(child.id() as i32);
 
     // Set master fd to non-blocking mode
-    let fl = fcntl_getfl(&master)
-        .map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))?;
+    let fl = fcntl_getfl(&master).map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))?;
     fcntl_setfl(&master, fl | OFlags::NONBLOCK)
         .map_err(|e| io::Error::from_raw_os_error(e.raw_os_error()))?;
 
-    Ok(PtyChild {
-        master,
-        child,
-        pid,
-    })
+    Ok(PtyChild { master, child, pid })
 }
 
 /// Retrieve the foreground process group PID for the controlling terminal.

@@ -111,9 +111,7 @@ pub struct KittyKeyboard {
 
 impl KittyKeyboard {
     pub fn new() -> Self {
-        Self {
-            stack: vec![0],
-        }
+        Self { stack: vec![0] }
     }
 
     #[inline]

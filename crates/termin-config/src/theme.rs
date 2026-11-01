@@ -143,24 +143,22 @@ pub fn parse_theme(src: &str) -> Result<Theme, Diagnostic> {
         ansi: Vec<String>,
     }
 
-    let raw: RawTheme = toml::from_str(src).map_err(|e| {
-        Diagnostic::error(format!("failed to parse theme TOML: {}", e))
-    })?;
+    let raw: RawTheme = toml::from_str(src)
+        .map_err(|e| Diagnostic::error(format!("failed to parse theme TOML: {}", e)))?;
 
-    let term_raw = raw.terminal.ok_or_else(|| {
-        Diagnostic::error("theme must contain a [terminal] section")
-    })?;
+    let term_raw = raw
+        .terminal
+        .ok_or_else(|| Diagnostic::error("theme must contain a [terminal] section"))?;
 
-    let fg = parse_color(&term_raw.foreground).map_err(|e| {
-        Diagnostic::error(format!("invalid terminal.foreground color: {}", e))
-    })?;
-    let bg = parse_color(&term_raw.background).map_err(|e| {
-        Diagnostic::error(format!("invalid terminal.background color: {}", e))
-    })?;
+    let fg = parse_color(&term_raw.foreground)
+        .map_err(|e| Diagnostic::error(format!("invalid terminal.foreground color: {}", e)))?;
+    let bg = parse_color(&term_raw.background)
+        .map_err(|e| Diagnostic::error(format!("invalid terminal.background color: {}", e)))?;
     let cursor = match term_raw.cursor {
-        Some(s) => Some(parse_color(&s).map_err(|e| {
-            Diagnostic::error(format!("invalid terminal.cursor color: {}", e))
-        })?),
+        Some(s) => Some(
+            parse_color(&s)
+                .map_err(|e| Diagnostic::error(format!("invalid terminal.cursor color: {}", e)))?,
+        ),
         None => None,
     };
     let cursor_text = match term_raw.cursor_text {
@@ -199,7 +197,11 @@ pub fn parse_theme(src: &str) -> Result<Theme, Diagnostic> {
     let is_dark = relative_luminance(bg) < relative_luminance(fg);
     let meta = raw.meta.unwrap_or_else(|| ThemeMeta {
         name: "custom".to_string(),
-        variant: if is_dark { "dark".into() } else { "light".into() },
+        variant: if is_dark {
+            "dark".into()
+        } else {
+            "light".into()
+        },
     });
 
     Ok(Theme {

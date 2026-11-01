@@ -16,6 +16,15 @@ pub struct AbsPos {
     pub col: u16,
 }
 
+impl AbsPos {
+    pub const fn new(line: u64, col: u16) -> Self {
+        Self {
+            line: AbsLine(line),
+            col,
+        }
+    }
+}
+
 bitflags! {
     /// Per-cell flags (wide char, wrap, protection, etc.).
     ///

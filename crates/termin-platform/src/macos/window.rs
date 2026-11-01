@@ -12,14 +12,14 @@ use termin_core::{Size, WindowId};
 use objc2::rc::Retained;
 use objc2::{declare_class, msg_send_id, mutability, ClassType, DeclaredClass};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSBackingStoreType, NSColor,
-    NSVisualEffectBlendingMode,
+    NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSVisualEffectBlendingMode,
     NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
     NSWindowCollectionBehavior, NSWindowDelegate, NSWindowOcclusionState, NSWindowStyleMask,
     NSWindowTitleVisibility,
 };
 use objc2_foundation::{
-    CGFloat, MainThreadMarker, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
+    CGFloat, MainThreadMarker, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize,
+    NSString,
 };
 use objc2_quartz_core::CAMetalLayer;
 
@@ -140,10 +140,7 @@ pub fn create_native_window(
         (100.0, 100.0, 800.0, 600.0)
     };
 
-    let content_rect = NSRect::new(
-        NSPoint::new(origin_x, origin_y),
-        NSSize::new(width, height),
-    );
+    let content_rect = NSRect::new(NSPoint::new(origin_x, origin_y), NSSize::new(width, height));
 
     let style_mask = NSWindowStyleMask::Titled
         | NSWindowStyleMask::Closable
@@ -235,9 +232,6 @@ pub fn create_native_window(
 
     // Display link
     let display_link = create_display_link(&view, win_id, mtm);
-
-    // Present window
-    window.makeKeyAndOrderFront(None);
 
     WindowState {
         id: win_id,

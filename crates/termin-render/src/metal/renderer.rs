@@ -37,6 +37,7 @@ pub struct MetalRenderer {
     srgb_lut: [f32; 256],
     active_texture: Option<Retained<ProtocolObject<dyn MTLTexture>>>,
     active_layer: Option<Retained<CAMetalLayer>>,
+    configured_layer: usize,
 }
 
 impl MetalRenderer {
@@ -78,6 +79,7 @@ impl MetalRenderer {
             srgb_lut: srgb_to_linear_lut(),
             active_texture: None,
             active_layer: None,
+            configured_layer: 0,
         })
     }
 
@@ -118,6 +120,32 @@ impl MetalRenderer {
         self.active_layer = layer;
     }
 
+    /// Render into a `CAMetalLayer` given as a raw pointer (as exposed by
+    /// `termin_platform::RenderTarget::metal_layer`), so crates without objc2 can drive the renderer.
+    /// The layer is configured (device, pixel format) once per distinct pointer.
+    ///
+    /// # Safety
+    /// `layer` must point to a live `CAMetalLayer` for the duration of the call.
+    pub unsafe fn render_to_raw_layer(
+        &mut self,
+        layer: *mut std::ffi::c_void,
+        size: Size,
+        scale_factor: f32,
+        list: &DrawList,
+        clear: Rgba,
+    ) -> Result<(), RenderError> {
+        if layer.is_null() {
+            return Err(RenderError::DrawableUnavailable);
+        }
+        // SAFETY: caller guarantees `layer` is a valid CAMetalLayer pointer.
+        let layer_ref: &CAMetalLayer = unsafe { &*(layer as *const CAMetalLayer) };
+        if self.configured_layer != layer as usize {
+            configure_layer(layer_ref, &self.device);
+            self.configured_layer = layer as usize;
+        }
+        self.render_to_layer(layer_ref, size, scale_factor, list, clear)
+    }
+
     /// Wait until all in-flight GPU frames have completed.
     pub fn wait_idle(&self) {
         self.ring.semaphore.wait_idle();
@@ -151,8 +179,7 @@ impl MetalRenderer {
         clear: Rgba,
     ) -> Result<(), RenderError> {
         // SAFETY: Obtaining next drawable from CAMetalLayer.
-        let drawable = unsafe { layer.nextDrawable() }
-            .ok_or(RenderError::DrawableUnavailable)?;
+        let drawable = unsafe { layer.nextDrawable() }.ok_or(RenderError::DrawableUnavailable)?;
 
         // SAFETY: Querying texture from valid CAMetalDrawable.
         let texture = unsafe { drawable.texture() };
@@ -241,11 +268,10 @@ impl MetalRenderer {
 
         // Attach completion handler to signal semaphore on GPU frame completion
         let sem = self.ring.semaphore.clone();
-        let block = block2::RcBlock::new(
-            move |_cmd: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
+        let block =
+            block2::StackBlock::new(move |_cmd: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
                 sem.signal_completed();
-            },
-        );
+            });
         // SAFETY: Registering completion handler callback on valid MTLCommandBuffer.
         unsafe {
             cmd_buf.addCompletedHandler(&*block as *const _ as *mut _);
@@ -301,8 +327,7 @@ impl MetalRenderer {
             if scissor.width == 0 || scissor.height == 0 {
                 // Fully clipped layer; skip draw calls but advance offsets
                 quad_offset += layer.quads.len();
-                glyph_offset +=
-                    layer.glyphs.len() + layer.color_glyphs.len() + layer.icons.len();
+                glyph_offset += layer.glyphs.len() + layer.color_glyphs.len() + layer.icons.len();
                 continue;
             }
             encoder.setScissorRect(scissor);
@@ -401,12 +426,9 @@ impl MetalRenderer {
         }
 
         // Check buffer usage for shrinking after sustained idle
-        let _ = self.ring.update_usage_and_shrink(
-            &self.device,
-            slot_idx,
-            total_quads,
-            total_glyphs,
-        );
+        let _ =
+            self.ring
+                .update_usage_and_shrink(&self.device, slot_idx, total_quads, total_glyphs);
 
         Ok(())
     }

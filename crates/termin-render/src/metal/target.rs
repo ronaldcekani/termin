@@ -4,6 +4,7 @@
 
 use std::ptr::NonNull;
 
+use crate::RenderTarget;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{
@@ -11,7 +12,6 @@ use objc2_metal::{
     MTLTexture, MTLTextureDescriptor, MTLTextureUsage,
 };
 use termin_core::Size;
-use crate::RenderTarget;
 
 use super::RenderError;
 

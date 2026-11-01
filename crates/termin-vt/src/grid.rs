@@ -132,7 +132,7 @@ impl Grid {
 
     /// Check if cursor addressing is in origin mode (DECOM).
     #[inline]
-    fn is_origin(&self, modes: Modes) -> bool {
+    pub fn is_origin(&self, modes: Modes) -> bool {
         modes.contains(Modes::ORIGIN)
     }
 
@@ -146,6 +146,26 @@ impl Grid {
             self.cursor_col = actual_col;
         } else {
             self.cursor_row = row.min(self.num_rows.saturating_sub(1));
+            self.cursor_col = col.min(self.cols.saturating_sub(1));
+        }
+    }
+
+    /// Move cursor to absolute row, respecting origin mode and vertical margins.
+    pub fn set_cursor_row(&mut self, row: u16, modes: Modes) {
+        self.pending_wrap = false;
+        if self.is_origin(modes) {
+            self.cursor_row = (self.top_margin + row).min(self.bottom_margin);
+        } else {
+            self.cursor_row = row.min(self.num_rows.saturating_sub(1));
+        }
+    }
+
+    /// Move cursor to absolute column, respecting origin mode and horizontal margins.
+    pub fn set_cursor_col(&mut self, col: u16, modes: Modes) {
+        self.pending_wrap = false;
+        if self.is_origin(modes) {
+            self.cursor_col = (self.left_margin + col).min(self.right_margin);
+        } else {
             self.cursor_col = col.min(self.cols.saturating_sub(1));
         }
     }
@@ -224,6 +244,23 @@ impl Grid {
             self.bottom_margin = self.num_rows.saturating_sub(1);
         }
         self.set_cursor_pos(0, 0, modes);
+    }
+
+    /// Scroll up by 1 line within vertical margins without heap allocation.
+    #[inline]
+    pub fn scroll_up_one(&mut self, style: u16, pool: &mut RowPool) -> Option<Row> {
+        let top = self.top_margin as usize;
+        let bottom = self.bottom_margin as usize;
+        let is_full_screen = top == 0 && bottom == self.num_rows as usize - 1;
+        let row = self.rows.remove(top);
+        let new_row = pool.alloc(self.cols, style);
+        self.rows.insert(bottom, new_row);
+        if is_full_screen {
+            Some(row)
+        } else {
+            pool.recycle(row);
+            None
+        }
     }
 
     /// Scroll up by `count` lines within vertical margins.
@@ -397,12 +434,14 @@ impl Grid {
 
         if charset == Charset::DecSpecialGraphics {
             map_dec_special_graphics(c)
+        } else if charset == Charset::Uk && c == '#' {
+            '£'
         } else {
             c
         }
     }
 
-    /// Print a character into the grid, returning evicted rows if a scroll occurred.
+    /// Print a character into the grid, returning an evicted row if a scroll occurred.
     pub fn print_char(
         &mut self,
         c: char,
@@ -410,8 +449,8 @@ impl Grid {
         modes: Modes,
         pool: &mut RowPool,
         graphemes: &mut GraphemeTable,
-    ) -> Vec<Row> {
-        let mut evicted = Vec::new();
+    ) -> Option<Row> {
+        let mut evicted = None;
         let autowrap = modes.contains(Modes::AUTOWRAP);
         let insert = modes.contains(Modes::INSERT);
 
@@ -462,11 +501,14 @@ impl Grid {
             if cur_row < self.rows.len() {
                 self.rows[cur_row].flags.insert(RowFlags::WRAPPED);
                 let last_col = self.cols.saturating_sub(1);
-                self.rows[cur_row].get_mut(last_col).flags.insert(CellFlags::WRAPLINE);
+                self.rows[cur_row]
+                    .get_mut(last_col)
+                    .flags
+                    .insert(CellFlags::WRAPLINE);
             }
 
             if self.cursor_row >= self.bottom_margin {
-                evicted.extend(self.scroll_up(1, style, pool));
+                evicted = self.scroll_up_one(style, pool);
             } else {
                 self.cursor_row += 1;
             }
@@ -478,10 +520,13 @@ impl Grid {
             let cur_row = self.cursor_row as usize;
             if cur_row < self.rows.len() {
                 self.rows[cur_row].flags.insert(RowFlags::WRAPPED);
-                self.rows[cur_row].get_mut(self.cursor_col).flags.insert(CellFlags::WRAPLINE);
+                self.rows[cur_row]
+                    .get_mut(self.cursor_col)
+                    .flags
+                    .insert(CellFlags::WRAPLINE);
             }
             if self.cursor_row >= self.bottom_margin {
-                evicted.extend(self.scroll_up(1, style, pool));
+                evicted = self.scroll_up_one(style, pool);
             } else {
                 self.cursor_row += 1;
             }
@@ -537,6 +582,24 @@ impl Grid {
 
         self.rows[cur_row].notify_write(col, w);
         evicted
+    }
+
+    /// Fast-path bulk write of printable ASCII bytes (`0x20..=0x7E`) that fit on the current row
+    /// without wrapping or charset translation.
+    #[inline]
+    pub fn print_ascii_run(&mut self, bytes: &[u8], style: u16) {
+        let cur_row = self.cursor_row as usize;
+        let col = self.cursor_col as usize;
+        let n = bytes.len();
+        let row = &mut self.rows[cur_row];
+        let slice = &mut row.cells[col..col + n];
+        for (cell, &b) in slice.iter_mut().zip(bytes.iter()) {
+            cell.ch = b as u32;
+            cell.style = style;
+            cell.flags = CellFlags::empty();
+        }
+        row.notify_write(col as u16, n as u16);
+        self.cursor_col += n as u16;
     }
 
     /// Save cursor state (DECSC).

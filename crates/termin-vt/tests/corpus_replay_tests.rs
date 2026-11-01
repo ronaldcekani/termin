@@ -13,7 +13,9 @@ impl EffectSink for DummySink {
 
 #[test]
 fn test_replay_all_corpus_files() {
-    let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("corpus");
+    let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("corpus");
     corpus_gen::generate_all_corpora(&corpus_dir);
 
     let entries = std::fs::read_dir(&corpus_dir).unwrap();
