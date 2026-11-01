@@ -481,6 +481,15 @@ pub fn cx_set_drag_regions(win_id: WindowId, regions: Vec<Rect>) {
     });
 }
 
+/// Set double-click passthrough regions for a window.
+pub fn cx_set_dblclick_regions(win_id: WindowId, regions: Vec<Rect>) {
+    with_state(|state| {
+        if let Some(win_state) = state.windows.get(&win_id) {
+            win_state.view.set_dblclick_regions(regions);
+        }
+    });
+}
+
 /// Set window opacity.
 pub fn cx_set_window_opacity(win_id: WindowId, opacity: f32) {
     with_state(|state| {
@@ -594,7 +603,13 @@ mod tests {
             let _ = cx.appearance();
             self.events.lock().unwrap().push((win, ev));
         }
-        fn frame(&mut self, _cx: &mut PlatformCx, _win: WindowId, _target: &mut dyn crate::RenderTarget) {}
+        fn frame(
+            &mut self,
+            _cx: &mut PlatformCx,
+            _win: WindowId,
+            _target: &mut dyn crate::RenderTarget,
+        ) {
+        }
         fn wake(&mut self, _cx: &mut PlatformCx) {}
         fn menu_action(&mut self, _cx: &mut PlatformCx, _action: ActionId) {}
         fn should_terminate(&mut self, _cx: &mut PlatformCx) -> bool {

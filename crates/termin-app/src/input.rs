@@ -12,6 +12,7 @@ use crate::dispatch::dispatch;
 use crate::keymap::{Keymap, WhenContext};
 use crate::model::AppModel;
 use crate::model::Dir;
+use crate::model::RenameTarget;
 
 /// Current selection state for a pane.
 #[derive(Clone, Debug, PartialEq)]
@@ -242,9 +243,20 @@ pub fn handle_window_mouse(
     if is_pointer_down {
         model.focused_window = Some(win_id);
     }
+    if is_left_down && model.rename.is_some() {
+        // Clicking inside the field keeps editing; anywhere else commits.
+        if rename_target_rect(model, win_id, ev.pos).is_some() {
+            return true;
+        }
+        model.commit_rename();
+    }
     if is_left_down {
         if let Some(ws_id) = workspace_at(model, win_id, ev.pos) {
-            return model.select_workspace(ws_id);
+            let selected = model.select_workspace(ws_id);
+            if ev.click_count == 2 {
+                return model.begin_rename_workspace(ws_id) || selected;
+            }
+            return selected;
         }
         if let Some(window) = model.windows.get(win_id) {
             if window.sidebar_visible {
@@ -299,7 +311,7 @@ pub fn handle_window_mouse(
     if is_left_down {
         let strip = Rect::new(pane_rect.x, pane_rect.y, pane_rect.w, TAB_STRIP_HEIGHT);
         if strip.contains(ev.pos) {
-            return handle_tabstrip_click(model, pane_id, strip, ev.pos) || focused;
+            return handle_tabstrip_click(model, pane_id, strip, ev.pos, ev.click_count) || focused;
         }
     }
 
@@ -313,6 +325,44 @@ pub fn handle_window_mouse(
     } else {
         false
     }
+}
+
+/// Rect of the card/tab being renamed if `pos` lies inside it.
+fn rename_target_rect(model: &AppModel, win_id: WindowId, pos: termin_core::Point) -> Option<Rect> {
+    match model.rename.as_ref()?.target {
+        RenameTarget::Workspace(ws) => (workspace_at(model, win_id, pos) == Some(ws))
+            .then(|| Rect::new(pos.x, pos.y, 0.0, 0.0)),
+        RenameTarget::Tab(tab) => {
+            let pane_id = model.tabs.get(tab)?.pane;
+            let rect = tab_rect_of(model, win_id, pane_id, tab)?;
+            rect.contains(pos).then_some(rect)
+        }
+    }
+}
+
+/// Screen rect of `tab` in its pane's strip, if that pane is visible in `win_id`.
+pub fn tab_rect_of(
+    model: &AppModel,
+    win_id: WindowId,
+    pane_id: termin_core::PaneId,
+    tab: termin_core::TabId,
+) -> Option<Rect> {
+    let win = model.windows.get(win_id)?;
+    let pane_rect = model
+        .workspaces
+        .get(win.active_workspace)?
+        .layout
+        .rect_of(pane_id)?;
+    let pane = model.panes.get(pane_id)?;
+    let strip = Rect::new(pane_rect.x, pane_rect.y, pane_rect.w, TAB_STRIP_HEIGHT);
+    let active = pane
+        .tabs
+        .iter()
+        .position(|t| *t == pane.active_tab)
+        .unwrap_or(0);
+    let index = pane.tabs.iter().position(|t| *t == tab)?;
+    termin_ui::widgets::tabstrip::StripLayout::new(strip, pane.tabs.len(), active)
+        .tab_rect(strip, index)
 }
 
 fn workspace_at(
@@ -370,6 +420,7 @@ fn handle_tabstrip_click(
     pane_id: termin_core::PaneId,
     rect: Rect,
     pos: termin_core::Point,
+    click_count: u8,
 ) -> bool {
     let Some(pane) = model.panes.get(pane_id) else {
         return false;
@@ -394,8 +445,16 @@ fn handle_tabstrip_click(
             return model.close_tab(*tab_id);
         }
         if tab_rect.contains(pos) {
-            return model.select_tab(pane_id, index);
+            let selected = model.select_tab(pane_id, index);
+            if click_count == 2 {
+                return model.begin_rename_tab(*tab_id) || selected;
+            }
+            return selected;
         }
+    }
+    // Double-click on empty strip space opens a new tab (Safari/Warp style).
+    if click_count == 2 && pos.x < layout.actions_x {
+        return model.new_tab(pane_id, true).is_some();
     }
     let new_tab = Rect::new(layout.actions_x, rect.y + 3.0, 24.0, 24.0);
     let split_right = Rect::new(layout.actions_x + 26.0, rect.y + 3.0, 24.0, 24.0);
@@ -568,6 +627,69 @@ mod routing_tests {
         assert_ne!(model.panes.get(pane).unwrap().active_tab, first_tab);
     }
 
+    fn dbl(x: f32, y: f32) -> MouseEvent {
+        MouseEvent {
+            click_count: 2,
+            ..click(x, y)
+        }
+    }
+
+    #[test]
+    fn double_click_empty_strip_opens_new_tab() {
+        let mut model = AppModel::new();
+        let pane = model.new_window(None, Size::new(900.0, 600.0), None);
+        let pane_id = model.focused_pane().unwrap();
+        let rect = model
+            .layout(pane, Size::new(96.0, 48.0))
+            .unwrap()
+            .rect_of(pane_id)
+            .unwrap();
+        // Far right of the single tab, left of the action buttons.
+        let x = rect.x + rect.w * 0.6;
+        assert!(handle_window_mouse(
+            &mut model,
+            pane,
+            &dbl(x, rect.y + 12.0),
+            &test_fonts(),
+            &|_| false
+        ));
+        assert_eq!(model.panes.get(pane_id).unwrap().tabs.len(), 2);
+    }
+
+    #[test]
+    fn double_click_workspace_row_starts_rename_and_click_elsewhere_commits() {
+        let mut model = AppModel::new();
+        let win = model.new_window(None, Size::new(900.0, 600.0), None);
+        let ws = model.focused_workspace().unwrap();
+        assert!(handle_window_mouse(
+            &mut model,
+            win,
+            &dbl(120.0, 65.0),
+            &test_fonts(),
+            &|_| false
+        ));
+        assert!(model.rename.is_some());
+        // Click inside the row keeps editing.
+        handle_window_mouse(&mut model, win, &click(120.0, 65.0), &test_fonts(), &|_| {
+            false
+        });
+        assert!(model.rename.is_some());
+        model.rename_text("Mine");
+        // Click in the terminal area commits.
+        handle_window_mouse(
+            &mut model,
+            win,
+            &click(600.0, 300.0),
+            &test_fonts(),
+            &|_| false,
+        );
+        assert!(model.rename.is_none());
+        assert_eq!(
+            model.workspaces.get(ws).unwrap().name.as_deref(),
+            Some("Mine")
+        );
+    }
+
     #[test]
     fn hidden_inactive_close_area_selects_instead_of_closing() {
         let mut model = AppModel::new();
@@ -580,7 +702,7 @@ mod routing_tests {
         let layout = termin_ui::widgets::tabstrip::StripLayout::new(rect, 2, 0);
         let tab = layout.tab_rect(rect, 1).unwrap();
         let pos = Point::new(tab.right() - 14.0, tab.y + tab.h * 0.5);
-        assert!(handle_tabstrip_click(&mut model, pane, rect, pos));
+        assert!(handle_tabstrip_click(&mut model, pane, rect, pos, 1));
         assert_eq!(model.panes.get(pane).unwrap().active_tab, second);
         assert!(model.tabs.contains(first));
         assert!(model.tabs.contains(second));

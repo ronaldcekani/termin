@@ -43,7 +43,11 @@ pub fn handle(model: &mut AppModel, action: &Action) -> bool {
         }
         Action::RenameWorkspace(name) => {
             if let Some(ws) = model.focused_workspace() {
-                model.rename_workspace(ws, name.clone())
+                match name {
+                    // `None` opens the inline editor.
+                    None => model.begin_rename_workspace(ws),
+                    Some(_) => model.rename_workspace(ws, name.clone()),
+                }
             } else {
                 false
             }

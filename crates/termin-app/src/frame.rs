@@ -21,7 +21,8 @@ use termin_ui::widgets::editor::EditorWidget;
 use termin_ui::widgets::tabstrip::StripLayout;
 
 use crate::block_mode::{BlockMode, BlockTab};
-use crate::model::AppModel;
+use crate::model::{AppModel, RenameEdit, RenameTarget};
+use termin_ui::widgets::text_field::draw_text_field;
 
 struct RenderTargetAdapter<'a>(&'a mut dyn RenderTarget);
 
@@ -106,7 +107,7 @@ pub fn render_window_frame(
                 })
                 .collect();
             let mut sidebar_layer = Layer::new(Some(sidebar_rect));
-            draw_sidebar(
+            let hits = draw_sidebar(
                 sidebar_rect,
                 &workspaces,
                 tokens,
@@ -115,6 +116,32 @@ pub fn render_window_frame(
                 &mut sidebar_layer,
             );
             draw_list.push_layer(sidebar_layer);
+            if let Some(RenameEdit {
+                target: RenameTarget::Workspace(ws),
+                field,
+                ..
+            }) = model.rename.as_ref()
+            {
+                if let Some((_, card)) = hits.iter().find(|(id, _)| id == ws) {
+                    let rect = Rect::new(
+                        card.x + 6.0,
+                        card.y + 4.0,
+                        card.w - 12.0,
+                        fonts.geo.cell_h + 10.0,
+                    );
+                    let mut layer = Layer::new(Some(*card));
+                    draw_text_field(
+                        rect,
+                        field,
+                        cursor_blink_visible,
+                        tokens,
+                        fonts,
+                        glyphs,
+                        &mut layer,
+                    );
+                    draw_list.push_layer(layer);
+                }
+            }
         }
     }
 
@@ -282,6 +309,27 @@ pub fn render_window_frame(
 
         draw_list.push_layer(pane_layer);
         draw_list.push_layer(strip_layer);
+        if let Some(RenameEdit {
+            target: RenameTarget::Tab(tab),
+            field,
+            ..
+        }) = model.rename.as_ref()
+        {
+            if let Some(rect) = crate::input::tab_rect_of(model, win_id, pane_id, *tab) {
+                let rect = Rect::new(rect.x + 2.0, rect.y + 2.0, rect.w - 4.0, rect.h - 4.0);
+                let mut layer = Layer::new(Some(strip_rect));
+                draw_text_field(
+                    rect,
+                    field,
+                    cursor_blink_visible,
+                    tokens,
+                    fonts,
+                    glyphs,
+                    &mut layer,
+                );
+                draw_list.push_layer(layer);
+            }
+        }
     }
 
     // 4. Render dividers
@@ -539,27 +587,50 @@ pub fn drag_regions_into(
             if pane_rect.y >= TITLEBAR_DRAG_HEIGHT {
                 continue;
             }
-            let Some(pane) = model.panes.get(pane_id) else {
-                continue;
-            };
-            let strip = Rect::new(pane_rect.x, pane_rect.y, pane_rect.w, TAB_STRIP_HEIGHT);
-            let active = pane
-                .tabs
-                .iter()
-                .position(|&t| t == pane.active_tab)
-                .unwrap_or(0);
-            let strip_layout = StripLayout::new(strip, pane.tabs.len(), active);
-            let tabs_end =
-                strip_layout.start_x + strip_layout.visible as f32 * (strip_layout.tab_width + 2.0);
-            let gap = strip_layout.actions_x - tabs_end;
-            if gap > 0.0 {
-                out.push(Rect::new(tabs_end, strip.y, gap, strip.h));
+            if let Some(gap) = strip_gap(model, pane_id, pane_rect) {
+                out.push(gap);
             }
         }
     }
     if out.is_empty() {
         // Off-window sentinel: keeps the platform from falling back to the default band.
         out.push(Rect::new(-1.0, -1.0, 0.0, 0.0));
+    }
+}
+
+/// Empty tab-strip gap (between the last tab and the action buttons) of `pane_id`.
+fn strip_gap(model: &AppModel, pane_id: PaneId, pane_rect: Rect) -> Option<Rect> {
+    let pane = model.panes.get(pane_id)?;
+    let strip = Rect::new(pane_rect.x, pane_rect.y, pane_rect.w, TAB_STRIP_HEIGHT);
+    let active = pane
+        .tabs
+        .iter()
+        .position(|&t| t == pane.active_tab)
+        .unwrap_or(0);
+    let strip_layout = StripLayout::new(strip, pane.tabs.len(), active);
+    let tabs_end =
+        strip_layout.start_x + strip_layout.visible as f32 * (strip_layout.tab_width + 2.0);
+    let gap = strip_layout.actions_x - tabs_end;
+    (gap > 0.0).then(|| Rect::new(tabs_end, strip.y, gap, strip.h))
+}
+
+/// Tab-strip gaps inside the titlebar band: double-clicking them opens a new tab
+/// (delivered to the app) instead of zooming the window. Uses the cached layout.
+pub fn dblclick_regions_into(model: &AppModel, win_id: WindowId, out: &mut Vec<Rect>) {
+    out.clear();
+    let Some(window) = model.windows.get(win_id) else {
+        return;
+    };
+    let Some(ws) = model.workspaces.get(window.active_workspace) else {
+        return;
+    };
+    for &(pane_id, pane_rect) in &ws.layout.panes {
+        if pane_rect.y >= TITLEBAR_DRAG_HEIGHT {
+            continue;
+        }
+        if let Some(gap) = strip_gap(model, pane_id, pane_rect) {
+            out.push(gap);
+        }
     }
 }
 
@@ -571,6 +642,24 @@ mod tests {
         regions
             .iter()
             .any(|r| x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)
+    }
+
+    #[test]
+    fn dblclick_regions_are_tab_strip_gaps_inside_drag_regions() {
+        let mut model = AppModel::new();
+        let win = model.new_window(None, Size::new(960.0, 640.0), None);
+        let min = Size::new(96.0, 48.0);
+        let mut drag = Vec::new();
+        drag_regions_into(&mut model, win, min, &mut drag);
+        let mut dbl = Vec::new();
+        dblclick_regions_into(&model, win, &mut dbl);
+        assert!(!dbl.is_empty());
+        for r in &dbl {
+            assert!(contains_any(&drag, r.x + r.w * 0.5, r.y + r.h * 0.5));
+        }
+        // Sidebar header keeps zoom behaviour.
+        let sidebar = model.windows.get(win).unwrap().sidebar_rect();
+        assert!(!contains_any(&dbl, sidebar.x + 20.0, 10.0));
     }
 
     #[test]

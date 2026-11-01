@@ -46,7 +46,10 @@ pub fn handle(model: &mut AppModel, action: &Action) -> bool {
         }
         Action::RenameTab(name) => {
             if let Some(tab) = model.focused_tab() {
-                model.rename_tab(tab, name.clone())
+                match name {
+                    None => model.begin_rename_tab(tab),
+                    Some(_) => model.rename_tab(tab, name.clone()),
+                }
             } else {
                 false
             }

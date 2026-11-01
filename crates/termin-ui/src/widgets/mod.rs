@@ -7,6 +7,7 @@ pub mod scrollbar;
 pub mod sidebar;
 pub mod tab;
 pub mod tabstrip;
+pub mod text_field;
 pub mod workspace_card;
 
 pub use pane::{PaneWidget, TAB_STRIP_HEIGHT};

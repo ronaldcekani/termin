@@ -37,6 +37,8 @@ pub struct TerminViewIvars {
     pub window_id: Cell<WindowId>,
     pub tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     pub drag_regions: RefCell<Vec<Rect>>,
+    /// Sub-areas of drag regions whose double-clicks go to the app instead of zooming.
+    pub dblclick_regions: RefCell<Vec<Rect>>,
     pub marked_text: RefCell<String>,
     pub marked_selection: Cell<NSRange>,
     pub ime_cursor_rect: Cell<NSRect>,
@@ -316,7 +318,8 @@ declare_class!(
             };
 
             // Check if click is in a window drag region
-            let in_drag = self.is_in_drag_region(pt);
+            let app_dblclick = event.clickCount() == 2 && self.is_in_dblclick_region(pt);
+            let in_drag = self.is_in_drag_region(pt) && !app_dblclick;
             if in_drag {
                 if event.clickCount() == 2 {
                     // Respect AppleActionOnDoubleClick user default
@@ -1006,13 +1009,16 @@ impl TerminView {
             window_id: Cell::new(win_id),
             tracking_area: RefCell::new(None),
             drag_regions: RefCell::new(Vec::new()),
+            dblclick_regions: RefCell::new(Vec::new()),
             marked_text: RefCell::new(String::new()),
             marked_selection: Cell::new(NSRange::new(NSNotFound as usize, 0)),
             ime_cursor_rect: Cell::new(NSRect::ZERO),
             in_key_down: RefCell::new(None),
             key_down_handled: Cell::new(false),
             accessible_text: RefCell::new(String::new()),
-            accessibility_tree: RefCell::new(crate::accessibility::AccessibilityTreeSnapshot::empty()),
+            accessibility_tree: RefCell::new(
+                crate::accessibility::AccessibilityTreeSnapshot::empty(),
+            ),
             last_accessibility_notify: RefCell::new(None),
         });
 
@@ -1049,6 +1055,20 @@ impl TerminView {
     /// Set window drag regions in view coordinates.
     pub fn set_drag_regions(&self, regions: Vec<Rect>) {
         *self.ivars().drag_regions.borrow_mut() = regions;
+    }
+
+    /// Set regions (inside drag regions) where a double-click is forwarded to the app.
+    pub fn set_dblclick_regions(&self, regions: Vec<Rect>) {
+        *self.ivars().dblclick_regions.borrow_mut() = regions;
+    }
+
+    /// Whether `pt` lies in an app-handled double-click region.
+    pub fn is_in_dblclick_region(&self, pt: Point) -> bool {
+        self.ivars()
+            .dblclick_regions
+            .borrow()
+            .iter()
+            .any(|r| pt.x >= r.x && pt.x <= (r.x + r.w) && pt.y >= r.y && pt.y <= (r.y + r.h))
     }
 
     /// Check if a point is within any configured window drag regions.

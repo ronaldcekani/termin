@@ -4,10 +4,12 @@
 //! See `docs/architecture.md §5` and `docs/specs/app-model-and-ui.md §1, §2`.
 
 pub mod arena;
+pub mod rename;
 pub mod tree;
 pub mod types;
 
 pub use arena::{Arena, ArenaId};
+pub use rename::{RenameEdit, RenameTarget};
 pub use tree::{
     neighbor, Dir, Direction, Divider, Node, NodeIdx, SplitTree, TreeLayout, DIVIDER_HIT,
     DIVIDER_THICKNESS, MAX_RATIO, MIN_RATIO,
@@ -49,6 +51,8 @@ pub struct AppModel {
     pub tabs: Arena<TabId, Tab>,
     pub focused_window: Option<WindowId>,
     pub pending_effects: Vec<ModelEffect>,
+    /// Active inline rename (workspace or tab), if any.
+    pub rename: Option<RenameEdit>,
 }
 
 impl Default for AppModel {
@@ -66,6 +70,7 @@ impl AppModel {
             tabs: Arena::new(),
             focused_window: None,
             pending_effects: Vec::new(),
+            rename: None,
         }
     }
 
@@ -325,7 +330,8 @@ impl AppModel {
         true
     }
 
-    /// Rename a workspace (`None` opens inline editor, `Some("")` resets to auto).
+    /// Rename a workspace (`None` or blank resets to auto; the inline editor is
+    /// started with [`Self::begin_rename_workspace`]).
     pub fn rename_workspace(&mut self, ws_id: WorkspaceId, name: Option<String>) -> bool {
         let Some(ws) = self.workspaces.get_mut(ws_id) else {
             return false;
@@ -832,7 +838,7 @@ impl AppModel {
                     let tree_snap = self.build_tree_snapshot(&ws.tree, ws.tree.root());
 
                     win_snap.workspaces.push(WorkspaceSnapshot {
-                        name: ws.name.clone().unwrap_or_else(|| "Default".to_string()),
+                        name: ws.name.clone().unwrap_or_default(),
                         focused_pane: focused_path,
                         zoomed: zoomed_path,
                         tree: tree_snap,
@@ -918,7 +924,8 @@ impl AppModel {
                 let ws_id = model.workspaces.insert_with(|id| Workspace {
                     id,
                     window: win_id,
-                    name: if ws_snap.name == "Default" {
+                    // Empty string is the snapshot encoding of "auto name".
+                    name: if ws_snap.name.is_empty() {
                         None
                     } else {
                         Some(ws_snap.name.clone())
