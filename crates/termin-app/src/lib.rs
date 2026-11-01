@@ -10,6 +10,7 @@ pub mod dispatch;
 pub mod folder_search;
 pub mod frecency;
 pub mod frame;
+pub mod hover;
 pub mod input;
 pub mod keymap;
 pub mod model;

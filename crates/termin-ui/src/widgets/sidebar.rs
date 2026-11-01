@@ -1,7 +1,7 @@
 //! Workspace sidebar rendering primitives (app-model-and-ui.md §3).
 
 use crate::{
-    draw::{draw_text_ui, measure_text_ui, rounded_quad, solid_quad},
+    draw::{center_y, draw_text_ui, measure_text_ui, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -11,6 +11,16 @@ use termin_text::{FontBackend, GlyphCache};
 
 /// Offset of the first workspace card below the sidebar's top edge.
 pub const CARDS_TOP: f32 = 8.0;
+
+/// Vertical pitch of one card text line, derived from the UI font's line height.
+pub fn line_pitch(ui_cell_h: f32) -> f32 {
+    (ui_cell_h + 4.0).ceil().max(18.0)
+}
+
+/// Card height for `lines` text lines at line pitch `pitch` (half a pitch of padding top/bottom).
+pub fn card_height(lines: usize, pitch: f32) -> f32 {
+    ((lines + 1) as f32 * pitch).max(46.0)
+}
 
 /// Data supplied by the app for one workspace card.
 pub struct SidebarWorkspace<'a> {
@@ -23,6 +33,8 @@ pub struct SidebarWorkspace<'a> {
     pub ports: &'a [u16],
     pub unread: usize,
     pub active: bool,
+    /// Pointer is over the card.
+    pub hovered: bool,
 }
 
 /// Render a window's workspace list. Returns workspace card rectangles in sidebar order.
@@ -51,6 +63,7 @@ pub fn draw_sidebar<B: FontBackend>(
         sidebar.h,
         tokens.border_subtle,
     ));
+    let pitch = line_pitch(fonts.ui.geo.cell_h);
     let mut hits = Vec::with_capacity(workspaces.len());
     let mut y = sidebar.y + CARDS_TOP;
     for ws in workspaces {
@@ -63,8 +76,20 @@ pub fn draw_sidebar<B: FontBackend>(
             + usize::from(ws.git_branch.is_some())
             + ws.paths.iter().take(3).count()
             + usize::from(!ws.ports.is_empty());
-        let h = (18.0 + line_count as f32 * 18.0).max(46.0);
+        let h = card_height(line_count, pitch);
         let rect = Rect::new(sidebar.x + 7.0, y, sidebar.w - 14.0, h);
+        if ws.hovered && !focused {
+            layer.quads.push(rounded_quad(
+                rect.x,
+                rect.y,
+                rect.w,
+                rect.h,
+                tokens.bg_surface_hover,
+                7.0,
+                0.0,
+                Rgba::TRANSPARENT,
+            ));
+        }
         if focused {
             layer.quads.push(rounded_quad(
                 rect.x,
@@ -78,9 +103,9 @@ pub fn draw_sidebar<B: FontBackend>(
             ));
             layer.quads.push(rounded_quad(
                 rect.x + 4.0,
-                rect.y + 9.0,
+                rect.y + pitch * 0.5,
                 3.0,
-                rect.h - 18.0,
+                rect.h - pitch,
                 tokens.accent_tide,
                 1.5,
                 0.0,
@@ -107,7 +132,7 @@ pub fn draw_sidebar<B: FontBackend>(
         } else {
             ws.name
         };
-        let mut ty = rect.y + 9.0 + ((18.0 - fonts.ui.geo.cell_h) * 0.5).max(0.0);
+        let mut ty = center_y(rect.y + pitch * 0.5, pitch, fonts.ui.geo.cell_h);
         draw_text_ui(
             glyphs,
             &fonts.ui,
@@ -132,7 +157,7 @@ pub fn draw_sidebar<B: FontBackend>(
                 layer,
             );
         }
-        ty += 18.0;
+        ty += pitch;
         if let Some(s) = status {
             draw_text_ui(
                 glyphs,
@@ -148,7 +173,7 @@ pub fn draw_sidebar<B: FontBackend>(
                 },
                 layer,
             );
-            ty += 18.0;
+            ty += pitch;
         }
         if let Some(branch) = ws.git_branch {
             let mut label = String::from("⎇ ");
@@ -166,7 +191,7 @@ pub fn draw_sidebar<B: FontBackend>(
                 tokens.text_secondary,
                 layer,
             );
-            ty += 18.0;
+            ty += pitch;
         }
         for path in ws.paths.iter().take(3) {
             draw_text_ui(
@@ -179,7 +204,7 @@ pub fn draw_sidebar<B: FontBackend>(
                 tokens.text_tertiary,
                 layer,
             );
-            ty += 18.0;
+            ty += pitch;
         }
         if !ws.ports.is_empty() {
             let mut p = String::new();

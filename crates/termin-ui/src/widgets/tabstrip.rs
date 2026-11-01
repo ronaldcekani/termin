@@ -1,11 +1,11 @@
 //! Per-pane tab strip layout and drawing.
 use super::tab::{draw_tab, TabHits, TabState};
 use crate::{
-    draw::{icons, solid_quad},
+    draw::{icons, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
-use termin_core::{Rect, TabId};
+use termin_core::{Rect, Rgba, TabId};
 use termin_render::Layer;
 use termin_text::{FontBackend, GlyphCache};
 
@@ -80,10 +80,12 @@ impl StripLayout {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_tabstrip<B: FontBackend>(
     rect: Rect,
     tabs: &[(TabId, &str, TabState)],
     active: TabId,
+    hovered_action: Option<usize>,
     tokens: &Tokens,
     fonts: &TermFonts,
     glyphs: &mut GlyphCache<B>,
@@ -132,7 +134,24 @@ pub fn draw_tabstrip<B: FontBackend>(
     let [new_tab, split_right, split_down] = layout.action_rects(rect);
     for (i, r) in [new_tab, split_right, split_down].into_iter().enumerate() {
         let (cx, cy) = (r.x + r.w * 0.5, r.y + r.h * 0.5);
-        let color = tokens.icon_default;
+        let hovered = hovered_action == Some(i);
+        if hovered {
+            layer.quads.push(rounded_quad(
+                r.x,
+                r.y,
+                r.w,
+                r.h,
+                tokens.bg_surface_hover,
+                5.0,
+                0.0,
+                Rgba::TRANSPARENT,
+            ));
+        }
+        let color = if hovered {
+            tokens.icon_hover
+        } else {
+            tokens.icon_default
+        };
         match i {
             0 => icons::plus(layer, cx, cy, 11.0, color),
             1 => icons::split(layer, cx, cy, true, color),

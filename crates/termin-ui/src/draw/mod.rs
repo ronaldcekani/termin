@@ -9,6 +9,12 @@ use termin_core::Rgba;
 use termin_render::{GlyphInst, Layer, QuadInst};
 use termin_text::{AtlasKind, FontBackend, FontId, FontMetrics, GlyphCache, GlyphRef};
 
+/// Top y of a `line_h`-high line box vertically centered in a box at `box_y` of height `box_h`.
+#[inline]
+pub fn center_y(box_y: f32, box_h: f32, line_h: f32) -> f32 {
+    box_y + (box_h - line_h) * 0.5
+}
+
 /// Axis-aligned solid rectangle.
 #[inline]
 pub fn solid_quad(x: f32, y: f32, w: f32, h: f32, color: Rgba) -> QuadInst {
@@ -279,6 +285,14 @@ pub fn draw_text_ui<B: FontBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn center_y_centers_line_box() {
+        assert_eq!(center_y(10.0, 38.0, 16.0), 21.0);
+        assert_eq!(center_y(0.0, 24.0, 24.0), 0.0);
+        // Line taller than the box overhangs symmetrically.
+        assert_eq!(center_y(0.0, 10.0, 14.0), -2.0);
+    }
 
     #[test]
     fn solid_quad_fields() {

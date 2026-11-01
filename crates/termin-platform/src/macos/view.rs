@@ -130,6 +130,7 @@ declare_class!(
             }
 
             let options = NSTrackingAreaOptions::NSTrackingMouseMoved
+                | NSTrackingAreaOptions::NSTrackingMouseEnteredAndExited
                 | NSTrackingAreaOptions::NSTrackingActiveAlways
                 | NSTrackingAreaOptions::NSTrackingInVisibleRect;
 
@@ -553,6 +554,25 @@ declare_class!(
                 PlatformEvent::Mouse(MouseEvent {
                     kind: MouseKind::Move,
                     pos: pt,
+                    mods,
+                    click_count: 0,
+                }),
+            );
+        }
+
+        /// Pointer left the view: report a move far outside the window so hover state clears.
+        #[method(mouseExited:)]
+        unsafe fn mouse_exited(&self, event: &NSEvent) {
+            let win_id = self.ivars().window_id.get();
+            let mods = extract_mods(event.modifierFlags());
+            crate::macos::app::dispatch_event(
+                win_id,
+                PlatformEvent::Mouse(MouseEvent {
+                    kind: MouseKind::Move,
+                    pos: Point {
+                        x: -1.0e6,
+                        y: -1.0e6,
+                    },
                     mods,
                     click_count: 0,
                 }),

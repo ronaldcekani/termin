@@ -22,10 +22,12 @@ use crate::block_mode::{BlockMode, KeyOutcome};
 use crate::controllers;
 use crate::folder_search::{self, FolderSearch};
 use crate::frame::render_window_frame;
+use crate::hover::{hover_at, HoverState};
 use crate::input::{handle_ime_commit, handle_key, handle_scroll, handle_window_mouse};
 use crate::keymap::Keymap;
 use crate::model::{AppModel, ModelEffect};
 use crate::session_ctl::{close_session, drain_session_effects, spawn_session};
+use termin_ui::widgets::text_field::{clip_op, ClipOp};
 
 /// Main application state owned on the main thread.
 pub struct App {
@@ -58,6 +60,8 @@ pub struct App {
     drag_scratch: Vec<Rect>,
     /// Folder search in the top bar (shared across the app's windows).
     pub search: FolderSearch,
+    /// Chrome element under the pointer.
+    pub hover: HoverState,
 }
 
 /// Focused tab in block mode, resolved for one input event.
@@ -127,6 +131,7 @@ impl App {
             drag_regions: FxHashMap::default(),
             drag_scratch: Vec::new(),
             search: FolderSearch::default(),
+            hover: HoverState::default(),
         }
     }
 
@@ -302,6 +307,33 @@ impl App {
     }
 
     /// Open the folder search dropdown (collects sources, starts the one-time scan).
+    /// Recompute hover for a pointer at `pos` in `win`; `true` if it changed (needs a frame).
+    fn update_hover(&mut self, win: WindowId, pos: termin_core::Point) -> bool {
+        let min_pane = Size::new(self.fonts.geo.cell_w * 12.0, self.fonts.geo.cell_h * 3.0);
+        let pitch = termin_ui::widgets::sidebar::line_pitch(self.fonts.ui.geo.cell_h);
+        let target = hover_at(&mut self.model, win, pos, min_pane, pitch);
+        self.hover.set(win, target)
+    }
+
+    /// Cmd-C/X/V while a rename or the folder search owns the keyboard. `Some(redraw)` if
+    /// consumed.
+    fn field_clipboard(&mut self, cx: &mut PlatformCx, ev: &termin_core::KeyEvent) -> Option<bool> {
+        let op = clip_op(ev)?;
+        if self.model.rename.is_none() && !self.search.open {
+            return None;
+        }
+        let clipboard = (op == ClipOp::Paste).then(|| cx.clipboard_get()).flatten();
+        let res = if let Some(r) = self.model.rename_clip(op, clipboard.as_deref()) {
+            r
+        } else {
+            self.search.clip(op, clipboard.as_deref())
+        };
+        if let Some(text) = res.copied {
+            cx.clipboard_set(&text);
+        }
+        Some(res.changed)
+    }
+
     fn open_search(&mut self, cx: &mut PlatformCx, win: WindowId) {
         self.model.commit_rename();
         let history = self.block_mode.history_cwds(100);
@@ -483,6 +515,12 @@ impl AppHandler for App {
     fn event(&mut self, cx: &mut PlatformCx, win: WindowId, ev: PlatformEvent) {
         match ev {
             PlatformEvent::Key(key_ev) => {
+                if let Some(redraw) = self.field_clipboard(cx, &key_ev) {
+                    if redraw {
+                        cx.request_frame(win);
+                    }
+                    return;
+                }
                 // An inline rename field owns the keyboard until committed/cancelled.
                 if let Some(redraw) = self.model.rename_key(&key_ev) {
                     if redraw {
@@ -604,6 +642,18 @@ impl AppHandler for App {
                 }
             }
             PlatformEvent::Mouse(mouse_ev) => {
+                if matches!(mouse_ev.kind, termin_core::MouseKind::Move) {
+                    // A hover change in another window needs that window redrawn too.
+                    let prev = self.hover.window();
+                    let changed = self.update_hover(win, mouse_ev.pos);
+                    if changed {
+                        cx.request_frame(win);
+                        if let Some(p) = prev.filter(|p| *p != win) {
+                            cx.request_frame(p);
+                        }
+                    }
+                    return;
+                }
                 if self.bar_mouse(cx, win, &mouse_ev) {
                     cx.request_frame(win);
                     return;
@@ -637,6 +687,8 @@ impl AppHandler for App {
             PlatformEvent::Focus(focused) => {
                 if focused {
                     self.model.focused_window = Some(win);
+                } else if let Some(prev) = self.hover.clear() {
+                    cx.request_frame(prev);
                 }
                 cx.request_frame(win);
             }
@@ -670,6 +722,7 @@ impl AppHandler for App {
                 &mut self.block_scratch,
                 &mut self.resize_times,
                 &self.search,
+                self.hover.target_for(win),
             );
         }
         if resize_pending {

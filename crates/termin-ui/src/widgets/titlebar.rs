@@ -2,12 +2,12 @@
 //! button and the centered folder-search field (`docs/design/components.md §1`).
 
 use crate::{
-    draw::{draw_text_ui, icons, rounded_quad, solid_quad},
+    draw::{center_y, draw_text_ui, icons, rounded_quad, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
     widgets::text_field::{draw_field_text, TextField},
 };
-use termin_core::Rect;
+use termin_core::{Rect, Rgba};
 use termin_render::Layer;
 use termin_text::{FontBackend, GlyphCache};
 
@@ -46,8 +46,33 @@ impl TitlebarLayout {
     }
 }
 
+/// A control in the bar.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BarHit {
+    Toggle,
+    NewWorkspace,
+    Search,
+}
+
+impl TitlebarLayout {
+    /// Control under `pos`, if any.
+    pub fn hit(&self, pos: termin_core::Point) -> Option<BarHit> {
+        if self.search.contains(pos) {
+            Some(BarHit::Search)
+        } else if self.toggle.contains(pos) {
+            Some(BarHit::Toggle)
+        } else if self.new_workspace.contains(pos) {
+            Some(BarHit::NewWorkspace)
+        } else {
+            None
+        }
+    }
+}
+
 /// What the bar shows this frame.
 pub struct TitlebarView<'a> {
+    /// Control under the pointer.
+    pub hover: Option<BarHit>,
     pub sidebar_visible: bool,
     /// `Some` while the search field is focused.
     pub query: Option<&'a TextField>,
@@ -75,7 +100,24 @@ pub fn draw_titlebar<B: FontBackend>(
         tokens.border_subtle,
     ));
     let cy = TITLEBAR_H * 0.5;
-    let toggle_color = if view.sidebar_visible {
+    for (hit, r) in [
+        (BarHit::Toggle, l.toggle),
+        (BarHit::NewWorkspace, l.new_workspace),
+    ] {
+        if view.hover == Some(hit) {
+            layer.quads.push(rounded_quad(
+                r.x,
+                r.y,
+                r.w,
+                r.h,
+                tokens.bg_surface_hover,
+                6.0,
+                0.0,
+                Rgba::TRANSPARENT,
+            ));
+        }
+    }
+    let toggle_color = if view.sidebar_visible || view.hover == Some(BarHit::Toggle) {
         tokens.icon_hover
     } else {
         tokens.icon_default
@@ -86,7 +128,11 @@ pub fn draw_titlebar<B: FontBackend>(
         l.new_workspace.x + l.new_workspace.w * 0.5,
         cy,
         11.0,
-        tokens.icon_default,
+        if view.hover == Some(BarHit::NewWorkspace) {
+            tokens.icon_hover
+        } else {
+            tokens.icon_default
+        },
     );
 
     let s = l.search;
@@ -101,6 +147,8 @@ pub fn draw_titlebar<B: FontBackend>(
         s.h,
         if active {
             tokens.bg_input
+        } else if view.hover == Some(BarHit::Search) {
+            tokens.bg_surface_hover
         } else {
             tokens.bg_surface
         },
@@ -115,7 +163,7 @@ pub fn draw_titlebar<B: FontBackend>(
     icons::magnifier(layer, s.x + 15.0, cy, 11.0, tokens.icon_default);
     let ui = &fonts.ui;
     let tx = s.x + 29.0;
-    let ty = cy - ui.geo.cell_h * 0.5;
+    let ty = center_y(s.y, s.h, ui.geo.cell_h);
     let avail = (s.right() - 10.0 - tx).max(1.0);
     match view.query {
         Some(field) if !field.text().is_empty() => {
@@ -154,6 +202,17 @@ pub fn draw_titlebar<B: FontBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hit_maps_points_to_controls() {
+        use termin_core::Point;
+        let l = TitlebarLayout::new(1000.0);
+        let c = |r: Rect| Point::new(r.x + r.w * 0.5, r.y + r.h * 0.5);
+        assert_eq!(l.hit(c(l.toggle)), Some(BarHit::Toggle));
+        assert_eq!(l.hit(c(l.new_workspace)), Some(BarHit::NewWorkspace));
+        assert_eq!(l.hit(c(l.search)), Some(BarHit::Search));
+        assert_eq!(l.hit(Point::new(-1.0e6, -1.0e6)), None);
+    }
 
     #[test]
     fn search_is_centered_and_clamped() {

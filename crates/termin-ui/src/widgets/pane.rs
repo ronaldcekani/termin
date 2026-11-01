@@ -6,7 +6,7 @@ use termin_core::{Point, Rect, Rgba};
 use termin_render::Layer;
 use termin_text::{FontBackend, GlyphCache};
 
-use crate::draw::{draw_text_ui, rounded_quad, solid_quad};
+use crate::draw::{center_y, draw_text_ui, rounded_quad, solid_quad};
 use crate::terminal_view::row::TermFonts;
 use crate::theme::Tokens;
 
@@ -145,7 +145,14 @@ impl PaneWidget {
 
         // Active tab chip
         let chip_w = (pane_rect.w * 0.4).clamp(120.0, 240.0);
-        let chip_rect = Rect::new(strip_rect.x + 4.0, strip_rect.y + 2.0, chip_w, 24.0);
+        let line_h = fonts.ui.geo.cell_h;
+        let chip_h = 24.0;
+        let chip_rect = Rect::new(
+            strip_rect.x + 4.0,
+            center_y(strip_rect.y, strip_rect.h, chip_h),
+            chip_w,
+            chip_h,
+        );
         let chip_bg = if focused {
             tokens.bg_surface
         } else {
@@ -169,7 +176,7 @@ impl PaneWidget {
             tokens.text_secondary
         };
         let text_x = chip_rect.x + 8.0;
-        let text_y = chip_rect.y + 5.0;
+        let text_y = center_y(chip_rect.y, chip_rect.h, line_h);
         draw_text_ui(
             glyphs,
             &fonts.ui,
@@ -188,7 +195,7 @@ impl PaneWidget {
             &fonts.ui,
             "+",
             right_pen,
-            strip_rect.y + 5.0,
+            center_y(strip_rect.y, strip_rect.h, line_h),
             16.0,
             tokens.text_muted,
             layer,
