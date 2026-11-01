@@ -1,7 +1,7 @@
 //! Per-pane tab strip layout and drawing.
 use super::tab::{draw_tab, TabHits, TabState};
 use crate::{
-    draw::{draw_text_mono, solid_quad},
+    draw::{icons, solid_quad},
     terminal_view::row::TermFonts,
     theme::Tokens,
 };
@@ -62,10 +62,21 @@ impl StripLayout {
         }
         Some(Rect::new(
             self.start_x + slot as f32 * (self.tab_width + 2.0),
-            rect.y + 2.0,
+            rect.y + 5.0,
             self.tab_width,
-            (rect.h - 3.0).max(0.0),
+            (rect.h - 5.0).max(0.0),
         ))
+    }
+
+    /// Action button rects `[new_tab, split_right, split_down]` (24x24, pitch 26,
+    /// vertically centered in the strip). Shared by drawing and hit testing.
+    pub fn action_rects(&self, rect: Rect) -> [Rect; 3] {
+        let y = rect.y + (rect.h - 24.0) * 0.5;
+        [
+            Rect::new(self.actions_x, y, 24.0, 24.0),
+            Rect::new(self.actions_x + 26.0, y, 24.0, 24.0),
+            Rect::new(self.actions_x + 52.0, y, 24.0, 24.0),
+        ]
     }
 }
 
@@ -88,7 +99,6 @@ pub fn draw_tabstrip<B: FontBackend>(
         1.0,
         tokens.border_subtle,
     ));
-    let action_w = 26.0;
     let active_index = tabs
         .iter()
         .position(|(id, _, _)| *id == active)
@@ -100,23 +110,34 @@ pub fn draw_tabstrip<B: FontBackend>(
             continue;
         };
         state.active = id == active;
+        let next_active = tabs
+            .get(index + 1)
+            .is_some_and(|&(nid, _, _)| nid == active);
+        if index + 1 < tabs.len()
+            && index + 1 < layout.first + layout.visible
+            && !state.active
+            && !state.hovered
+            && !next_active
+        {
+            layer.quads.push(solid_quad(
+                r.right() + 0.5,
+                r.y + 9.0,
+                1.0,
+                r.h - 20.0,
+                tokens.border_default,
+            ));
+        }
         hits.push((id, draw_tab(r, title, state, tokens, fonts, glyphs, layer)));
     }
-    let new_tab = Rect::new(layout.actions_x, rect.y + 3.0, 24.0, 24.0);
-    let split_right = Rect::new(layout.actions_x + action_w, rect.y + 3.0, 24.0, 24.0);
-    let split_down = Rect::new(layout.actions_x + action_w * 2.0, rect.y + 3.0, 24.0, 24.0);
-    for (r, label) in [(new_tab, "+"), (split_right, "⫿"), (split_down, "⊟")] {
-        draw_text_mono(
-            glyphs,
-            fonts.font,
-            &fonts.geo,
-            label,
-            r.x + 5.0,
-            r.y + 4.0,
-            16.0,
-            tokens.icon_default,
-            layer,
-        );
+    let [new_tab, split_right, split_down] = layout.action_rects(rect);
+    for (i, r) in [new_tab, split_right, split_down].into_iter().enumerate() {
+        let (cx, cy) = (r.x + r.w * 0.5, r.y + r.h * 0.5);
+        let color = tokens.icon_default;
+        match i {
+            0 => icons::plus(layer, cx, cy, 11.0, color),
+            1 => icons::split(layer, cx, cy, true, color),
+            _ => icons::split(layer, cx, cy, false, color),
+        }
     }
     StripHits {
         tabs: hits,
@@ -132,7 +153,7 @@ mod tests {
 
     #[test]
     fn crowded_strip_keeps_active_visible_and_clear_of_actions() {
-        let rect = Rect::new(0.0, 0.0, 400.0, 30.0);
+        let rect = Rect::new(0.0, 0.0, 400.0, 38.0);
         let layout = StripLayout::new(rect, 20, 19);
         assert!(layout.tab_rect(rect, 19).is_some());
         assert!(layout.tab_rect(rect, 0).is_none());

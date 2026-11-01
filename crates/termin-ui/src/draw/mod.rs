@@ -3,6 +3,8 @@
 //! Positions are logical points; glyph bitmap sizes are physical pixels
 //! (see `docs/specs/text-and-rendering.md §3.2`).
 
+pub mod icons;
+
 use termin_core::Rgba;
 use termin_render::{GlyphInst, Layer, QuadInst};
 use termin_text::{AtlasKind, FontBackend, FontId, GlyphCache, GlyphRef};

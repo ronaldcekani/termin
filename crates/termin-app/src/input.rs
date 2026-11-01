@@ -456,9 +456,7 @@ fn handle_tabstrip_click(
     if click_count == 2 && pos.x < layout.actions_x {
         return model.new_tab(pane_id, true).is_some();
     }
-    let new_tab = Rect::new(layout.actions_x, rect.y + 3.0, 24.0, 24.0);
-    let split_right = Rect::new(layout.actions_x + 26.0, rect.y + 3.0, 24.0, 24.0);
-    let split_down = Rect::new(layout.actions_x + 52.0, rect.y + 3.0, 24.0, 24.0);
+    let [new_tab, split_right, split_down] = layout.action_rects(rect);
     if new_tab.contains(pos) {
         return model.new_tab(pane_id, true).is_some();
     }
