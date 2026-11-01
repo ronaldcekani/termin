@@ -1,16 +1,35 @@
 //! Block chrome drawing helpers.
 use super::{SegmentKind, VisualLineMap};
 use crate::{
-    draw::{draw_text_mono, solid_quad},
-    terminal_view::TermFonts,
+    draw::{draw_text_mono, offset_glyph, offset_quad, solid_quad},
+    terminal_view::{build_row, RowCtx, RowInstances, TermFonts},
     Tokens,
 };
 use termin_core::{BlockId, Rect, Rgba};
 use termin_render::Layer;
 use termin_text::{FontBackend, GlyphCache};
-use termin_vt::BlockList;
+use termin_vt::{AbsLine, BlockList, Terminal};
 
 pub struct BlockView;
+
+/// Horizontal inset of block chrome and output rows inside the pane.
+pub const ROW_INSET: f32 = 8.0;
+
+/// Split `path` into ("~" prefix present, remainder) relative to `$HOME`.
+pub fn home_relative(path: &str) -> (bool, &str) {
+    let Some(home) = std::env::var_os("HOME") else {
+        return (false, path);
+    };
+    let Some(home) = home.to_str() else {
+        return (false, path);
+    };
+    match path.strip_prefix(home) {
+        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
+            (true, rest)
+        }
+        _ => (false, path),
+    }
+}
 
 impl BlockView {
     /// Draw headers and command rows. Terminal output rows remain the terminal
@@ -74,40 +93,60 @@ impl BlockView {
                         },
                     ));
                 }
+                let text_y = y + (segment.h - fonts.geo.cell_h) * 0.5;
                 let cwd = block.cwd.as_deref().unwrap_or("~");
+                let (tilde, rest) = home_relative(cwd);
+                let mut x = rect.x + ROW_INSET;
+                if tilde {
+                    draw_text_mono(
+                        glyphs,
+                        fonts.font,
+                        &fonts.geo,
+                        "~",
+                        x,
+                        text_y,
+                        fonts.geo.cell_w,
+                        tokens.text_tertiary,
+                        layer,
+                    );
+                    x += fonts.geo.cell_w;
+                }
                 draw_text_mono(
                     glyphs,
                     fonts.font,
                     &fonts.geo,
-                    cwd,
-                    rect.x + 8.0,
-                    y + 2.0,
-                    rect.w * 0.45,
+                    rest,
+                    x,
+                    text_y,
+                    rect.w * 0.6,
                     tokens.text_tertiary,
                     layer,
                 );
                 if let Some(code) = block.exit.filter(|c| *c != 0) {
                     let mut buf = [0u8; 16];
+                    let txt = format_exit(code, &mut buf);
+                    let cell_w = fonts.geo.cell_w;
+                    let code_w = txt.len() as f32 * cell_w;
+                    let code_x = rect.right() - ROW_INSET - code_w;
                     draw_text_mono(
                         glyphs,
                         fonts.font,
                         &fonts.geo,
                         "exit",
-                        rect.right() - 64.0,
-                        y + 2.0,
-                        28.0,
+                        code_x - 5.0 * cell_w,
+                        text_y,
+                        4.0 * cell_w,
                         tokens.status_danger,
                         layer,
                     );
-                    let txt = format_exit(code, &mut buf);
                     draw_text_mono(
                         glyphs,
                         fonts.font,
                         &fonts.geo,
                         txt,
-                        rect.right() - 32.0,
-                        y + 2.0,
-                        28.0,
+                        code_x,
+                        text_y,
+                        code_w,
                         tokens.status_danger,
                         layer,
                     );
@@ -117,8 +156,8 @@ impl BlockView {
                         fonts.font,
                         &fonts.geo,
                         "● running",
-                        rect.right() - 88.0,
-                        y + 2.0,
+                        rect.right() - ROW_INSET - 9.0 * fonts.geo.cell_w,
+                        text_y,
                         80.0,
                         tokens.accent_tide,
                         layer,
@@ -136,9 +175,9 @@ impl BlockView {
                         fonts.font,
                         &fonts.geo,
                         cmd,
-                        rect.x + 8.0,
-                        y + 2.0,
-                        rect.w - 16.0,
+                        rect.x + ROW_INSET,
+                        y + (segment.h - fonts.geo.cell_h) * 0.5,
+                        rect.w - 2.0 * ROW_INSET,
                         tokens.syntax_command,
                         layer,
                     );
@@ -146,6 +185,65 @@ impl BlockView {
             }
             previous = Some(id);
         }
+    }
+}
+
+impl BlockView {
+    /// Draw the terminal rows of every visible `Rows` segment, building each row
+    /// into `scratch` (reused across rows and frames) and offsetting it into place.
+    /// Returns the on-screen origin of `cursor_line`'s row when it is visible.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_rows<B: FontBackend>(
+        term: &Terminal,
+        map: &VisualLineMap,
+        rect: Rect,
+        scroll_y: f32,
+        cursor_line: Option<AbsLine>,
+        ctx: &mut RowCtx<'_, B>,
+        scratch: &mut RowInstances,
+        layer: &mut Layer,
+    ) -> Option<(f32, f32)> {
+        let line_h = map.line_height;
+        let mut cursor_at = None;
+        for segment in &map.segments {
+            let SegmentKind::Rows { first, end } = segment.kind else {
+                continue;
+            };
+            let seg_y = rect.y + segment.y - scroll_y;
+            if seg_y + segment.h < rect.y || seg_y > rect.bottom() {
+                continue;
+            }
+            // Only rows intersecting the viewport.
+            let skip = ((rect.y - seg_y) / line_h).floor().max(0.0) as u64;
+            let mut line = first.0 + skip;
+            while line < end.0 {
+                let row_y = seg_y + (line - first.0) as f32 * line_h;
+                if row_y > rect.bottom() {
+                    break;
+                }
+                let row_x = rect.x + ROW_INSET;
+                if cursor_line == Some(AbsLine(line)) {
+                    cursor_at = Some((row_x, row_y));
+                }
+                if let Some(cells) = term.row_at(AbsLine(line)) {
+                    build_row(cells, term.styles(), term, ctx, scratch);
+                    for q in &scratch.bg {
+                        layer.quads.push(offset_quad(q, row_x, row_y));
+                    }
+                    for d in &scratch.deco {
+                        layer.quads.push(offset_quad(d, row_x, row_y));
+                    }
+                    for g in &scratch.glyphs {
+                        layer.glyphs.push(offset_glyph(g, row_x, row_y));
+                    }
+                    for cg in &scratch.color_glyphs {
+                        layer.color_glyphs.push(offset_glyph(cg, row_x, row_y));
+                    }
+                }
+                line += 1;
+            }
+        }
+        cursor_at
     }
 }
 

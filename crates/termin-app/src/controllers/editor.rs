@@ -87,6 +87,11 @@ impl EditorController {
         }
     }
 
+    /// Whether an OSC 133 prompt mark has been seen for this tab.
+    pub fn integration_seen(&self) -> bool {
+        self.integration_seen
+    }
+
     pub fn route(&self) -> InputRoute {
         if self.raw_fallback {
             InputRoute::RawFallback

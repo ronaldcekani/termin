@@ -637,6 +637,25 @@ impl Terminal {
         )
     }
 
+    /// Oldest absolute line still addressable through [`Terminal::row_at`].
+    #[inline]
+    pub fn first_hot_line(&self) -> AbsLine {
+        AbsLine(self.scrollback.hot_base_line)
+    }
+
+    /// Cells of the primary-screen row at absolute `line` (hot scrollback or live
+    /// screen). Returns `None` for cold or evicted lines and lines past the screen.
+    pub fn row_at(&self, line: AbsLine) -> Option<&[Cell]> {
+        let idx = line.0.checked_sub(self.scrollback.hot_base_line)?;
+        let idx = usize::try_from(idx).ok()?;
+        let hot_len = self.scrollback.hot_len();
+        if idx < hot_len {
+            self.scrollback.get_hot(idx).map(|r| &r.cells[..])
+        } else {
+            self.grid.rows.get(idx - hot_len).map(|r| &r.cells[..])
+        }
+    }
+
     /// Total number of lines currently retained (hot scrollback + visible screen).
     pub fn total_lines(&self) -> u64 {
         self.scrollback.hot_base_line
@@ -1114,6 +1133,32 @@ mod tests {
         term.advance(b"\x1b[?1049l", &mut sink);
         assert!(!term.is_alt_screen());
         assert!(!term.modes().contains(Modes::ALT_SCREEN));
+    }
+
+    #[test]
+    fn test_row_at_addresses_scrollback_and_screen() {
+        let mut term = Terminal::new(&TerminalConfig {
+            cols: 10,
+            rows: 2,
+            scrollback_lines: 100,
+            cell_px: (8, 16),
+            osc52: Osc52Policy::Write,
+        });
+        let mut sink = RecordingSink {
+            written: Vec::new(),
+            effects: Vec::new(),
+        };
+        term.advance(b"a\r\nb\r\nc", &mut sink);
+        let first = term.first_hot_line();
+        let ch = |line: u64| {
+            term.row_at(AbsLine(first.0 + line))
+                .and_then(|cells| cells.first())
+                .map(|c| c.ch)
+        };
+        assert_eq!(ch(0), Some('a' as u32));
+        assert_eq!(ch(1), Some('b' as u32));
+        assert_eq!(ch(2), Some('c' as u32));
+        assert!(term.row_at(AbsLine(first.0 + 3)).is_none());
     }
 
     #[test]

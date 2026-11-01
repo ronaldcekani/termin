@@ -1,5 +1,7 @@
 //! UI widgets and components (`termin-ui::widgets`).
 
+pub mod completion_menu;
+pub mod editor;
 pub mod pane;
 pub mod scrollbar;
 pub mod sidebar;

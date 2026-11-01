@@ -8,7 +8,7 @@ use termin_config::Config;
 use termin_core::{PaneId, WorkspaceId};
 use termin_pty::{ReactorHandle, Session, SessionState, Signal, SpawnSpec};
 use termin_shell::{prepare_injection, resolve_shell, Env, SessionIds};
-use termin_vt::{Effect, Osc52Policy, Terminal, TerminalConfig};
+use termin_vt::{BlockEvent, Effect, Osc52Policy, Terminal, TerminalConfig};
 
 use crate::model::types::{AttentionKind, Tab};
 
@@ -75,10 +75,15 @@ pub fn spawn_session(
     Ok(session)
 }
 
-/// Drain accumulated effects from `session` into `tab`.
+/// Drain accumulated effects from `session` into `tab`, handing OSC 133 block
+/// events to `on_block`.
 ///
 /// Returns `true` if any drained effect should cause a UI or model dirty state.
-pub fn drain_session_effects(tab: &mut Tab, session: &Session<Terminal>) -> bool {
+pub fn drain_session_effects(
+    tab: &mut Tab,
+    session: &Session<Terminal>,
+    mut on_block: impl FnMut(BlockEvent),
+) -> bool {
     let mut effects = Vec::new();
     session.drain_effects(&mut effects);
 
@@ -105,6 +110,7 @@ pub fn drain_session_effects(tab: &mut Tab, session: &Session<Terminal>) -> bool
                 tab.attention.message = Some(body);
                 tab.attention.at = Some(std::time::Instant::now());
             }
+            Effect::Block(ev) => on_block(ev),
             _ => {}
         }
     }

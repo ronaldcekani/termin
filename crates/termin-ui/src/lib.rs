@@ -2,6 +2,7 @@
 //!
 //! See `docs/design/design-system.md` and `docs/design/components.md`.
 
+pub mod block_view;
 pub mod draw;
 pub mod terminal_view;
 pub mod theme;

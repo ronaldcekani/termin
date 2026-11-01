@@ -10,9 +10,10 @@ use termin_platform::{ActionId, AppHandler, PlatformCx, PlatformEvent, RenderTar
 use termin_pty::{Reactor, ReactorEvent, ReactorHandle, Session};
 use termin_render::MetalRenderer;
 use termin_text::{CoreTextBackend, FontBackend, FontSpec, GlyphCache};
-use termin_ui::{PaneRenderCache, TermFonts, TermPalette, Tokens};
+use termin_ui::{PaneRenderCache, RowInstances, TermFonts, TermPalette, Tokens};
 use termin_vt::Terminal;
 
+use crate::block_mode::{BlockMode, KeyOutcome};
 use crate::frame::render_window_frame;
 use crate::input::{handle_ime_commit, handle_key, handle_scroll, handle_window_mouse};
 use crate::keymap::Keymap;
@@ -40,9 +41,20 @@ pub struct App {
     retired_sessions: FxHashMap<TabId, Arc<Session<Terminal>>>,
     pub cursor_blink_visible: bool,
     pub font_size: f32,
+    /// Warp-style block mode state (editor, history, scroll) per tab.
+    pub block_mode: BlockMode,
+    block_scratch: RowInstances,
     /// Last drag regions sent to the platform per window, plus a scratch buffer.
     drag_regions: FxHashMap<WindowId, Vec<Rect>>,
     drag_scratch: Vec<Rect>,
+}
+
+/// Focused tab in block mode, resolved for one input event.
+struct BlockTarget {
+    tab: TabId,
+    cwd: String,
+    modes: termin_vt::Modes,
+    session: Arc<Session<Terminal>>,
 }
 
 impl Default for App {
@@ -76,6 +88,7 @@ impl App {
         let theme = parse_theme(BUILTIN_TERMIN_DARK).unwrap_or_default();
         let palette = TermPalette::from_theme(&theme.terminal, config.font.bold_is_bright);
         let tokens = Tokens::from_theme(&theme);
+        let block_mode = BlockMode::new(config.blocks.enabled);
 
         Self {
             model: AppModel::new(),
@@ -94,6 +107,8 @@ impl App {
             retired_sessions: FxHashMap::default(),
             cursor_blink_visible: true,
             font_size,
+            block_mode,
+            block_scratch: RowInstances::default(),
             drag_regions: FxHashMap::default(),
             drag_scratch: Vec::new(),
         }
@@ -185,6 +200,81 @@ impl App {
     }
 
     /// Update font size (zoom in / zoom out / reset).
+    /// The focused tab, when it is rendering in block mode.
+    fn focused_block_target(&self) -> Option<BlockTarget> {
+        let tab_id = self.model.focused_tab()?;
+        let tab = self.model.tabs.get(tab_id)?;
+        let session = tab.session.clone()?;
+        let modes = {
+            let term = session.term.lock().ok()?;
+            if !self.block_mode.is_active(tab, &term) {
+                return None;
+            }
+            term.modes()
+        };
+        let cwd = tab
+            .cwd
+            .clone()
+            .or_else(|| std::env::var("HOME").ok())
+            .unwrap_or_else(|| "/".into());
+        Some(BlockTarget {
+            tab: tab_id,
+            cwd,
+            modes,
+            session,
+        })
+    }
+
+    /// Panes whose active tab renders in block mode (terminal mouse input is off there).
+    fn block_panes(&self) -> Vec<PaneId> {
+        self.model
+            .panes
+            .iter()
+            .filter_map(|(pane_id, pane)| {
+                let tab = self.model.tabs.get(pane.active_tab)?;
+                let session = tab.session.as_ref()?;
+                let term = session.term.lock().ok()?;
+                self.block_mode.is_active(tab, &term).then_some(pane_id)
+            })
+            .collect()
+    }
+
+    /// Offer a key to the block editor. `None` lets the classic path handle it.
+    fn block_key(&mut self, ev: &termin_core::KeyEvent, cx: &mut PlatformCx) -> Option<bool> {
+        let target = self.focused_block_target()?;
+        let editor_owns_input = self
+            .block_mode
+            .tabs
+            .get(&target.tab)
+            .is_some_and(|t| t.ctl.route() == crate::controllers::editor::InputRoute::Editor);
+        if ev.pressed && editor_owns_input {
+            match self.keymap.lookup(ev, crate::keymap::WhenContext::Editor) {
+                Some(crate::action::Action::Paste) => {
+                    let text = cx.clipboard_get()?;
+                    return Some(self.block_mode.paste(target.tab, &target.cwd, &text));
+                }
+                Some(crate::action::Action::Copy) => {
+                    let state = self.block_mode.tabs.get(&target.tab)?;
+                    let selected = state.ctl.editor.selected_text()?.to_string();
+                    cx.clipboard_set(&selected);
+                    return Some(false);
+                }
+                _ => {}
+            }
+        }
+        match self
+            .block_mode
+            .handle_key(target.tab, &target.cwd, ev, target.modes)
+        {
+            KeyOutcome::Pass => None,
+            KeyOutcome::Handled => Some(true),
+            KeyOutcome::Write(bytes) => {
+                target.session.write(&bytes);
+                Some(true)
+            }
+        }
+    }
+
     /// Recompute titlebar drag regions and send them to the platform when they change.
     fn update_drag_regions(&mut self, cx: &mut PlatformCx, win: WindowId) {
         let min = Size::new(self.fonts.geo.cell_w * 12.0, self.fonts.geo.cell_h * 3.0);
@@ -307,18 +397,46 @@ impl AppHandler for App {
                         }
                     }
                 }
+                if let Some(redraw) = self.block_key(&key_ev, cx) {
+                    if redraw {
+                        cx.request_frame(win);
+                    }
+                    return;
+                }
                 if handle_key(&mut self.model, &self.keymap, &key_ev, cx) {
                     self.process_model_effects(cx);
                     cx.request_frame(win);
                 }
             }
             PlatformEvent::ImeCommit(text) => {
+                if let Some(target) = self.focused_block_target() {
+                    if self.block_mode.insert_text(target.tab, &target.cwd, &text) {
+                        cx.request_frame(win);
+                        return;
+                    }
+                }
                 if handle_ime_commit(&mut self.model, &text) {
                     cx.request_frame(win);
                 }
             }
+            PlatformEvent::Scroll(scroll_ev) if self.focused_block_target().is_some() => {
+                let Some(target) = self.focused_block_target() else {
+                    return;
+                };
+                let dy = if scroll_ev.precise {
+                    scroll_ev.dy
+                } else {
+                    scroll_ev.dy * self.fonts.geo.cell_h
+                };
+                if self.block_mode.scroll(target.tab, dy) {
+                    cx.request_frame(win);
+                }
+            }
             PlatformEvent::Mouse(mouse_ev) => {
-                if handle_window_mouse(&mut self.model, win, &mouse_ev, &self.fonts) {
+                let block_panes = self.block_panes();
+                if handle_window_mouse(&mut self.model, win, &mouse_ev, &self.fonts, &|pane| {
+                    block_panes.contains(&pane)
+                }) {
                     self.process_model_effects(cx);
                     cx.request_frame(win);
                 }
@@ -369,6 +487,8 @@ impl AppHandler for App {
                 &self.tokens,
                 &mut self.pane_caches,
                 self.cursor_blink_visible,
+                &mut self.block_mode,
+                &mut self.block_scratch,
             );
         }
     }
@@ -420,11 +540,10 @@ impl AppHandler for App {
             .collect();
 
         for (id, session) in tab_sessions {
-            let changed = self
-                .model
-                .tabs
-                .get_mut(id)
-                .is_some_and(|tab| drain_session_effects(tab, &session));
+            let block_mode = &mut self.block_mode;
+            let changed = self.model.tabs.get_mut(id).is_some_and(|tab| {
+                drain_session_effects(tab, &session, |ev| block_mode.on_block_event(id, ev))
+            });
             if changed {
                 if let Some(window) = window_for_tab(&self.model, id) {
                     if !dirty_windows.contains(&window) {
@@ -435,6 +554,8 @@ impl AppHandler for App {
         }
 
         self.process_model_effects(cx);
+        let tabs = &self.model.tabs;
+        self.block_mode.retain(|id| tabs.get(id).is_some());
 
         for win in dirty_windows {
             cx.request_frame(win);

@@ -43,15 +43,38 @@ impl VisualLineMap {
         top: AbsLine,
         bottom: AbsLine,
     ) -> Self {
-        let mut map = Self {
-            segments: Vec::new(),
-            height: 0.0,
-            line_height: line_height.max(1.0),
-        };
+        let mut map = Self::default();
+        map.rebuild(
+            blocks,
+            line_height,
+            header_height,
+            command_height,
+            top,
+            bottom,
+        );
+        map
+    }
+
+    /// Rebuild in place, reusing the segment buffer (no allocation in steady state).
+    pub fn rebuild(
+        &mut self,
+        blocks: &BlockList,
+        line_height: f32,
+        header_height: f32,
+        command_height: f32,
+        top: AbsLine,
+        bottom: AbsLine,
+    ) {
+        self.segments.clear();
+        self.height = 0.0;
+        self.line_height = line_height.max(1.0);
+        let map = self;
         let mut previous_end: Option<AbsLine> = None;
+        // Blocks that never reached OSC 133;C (the live prompt, empty Enter) have
+        // no command to show; the input editor stands in for them.
         for block in blocks
             .iter()
-            .filter(|b| !b.flags.contains(BlockFlags::CLEARED))
+            .filter(|b| !b.flags.contains(BlockFlags::CLEARED) && b.output_start.is_some())
         {
             let end = block.end.unwrap_or(bottom);
             if let Some(prev) = previous_end {
@@ -80,7 +103,6 @@ impl VisualLineMap {
             }
             previous_end = Some(end);
         }
-        map
     }
 
     fn push(&mut self, block: Option<BlockId>, kind: SegmentKind, h: f32) {
@@ -211,6 +233,19 @@ mod tests {
         );
         assert_eq!(map.segment_at(40.0).and_then(|s| s.block), Some(id));
         assert_eq!(BlockId(id.0), id);
+    }
+
+    #[test]
+    fn omits_blocks_without_a_command() {
+        let mut blocks = BlockList::new();
+        blocks.on_prompt_start(AbsLine(0));
+        blocks.on_input_start(AbsLine(0));
+        // Empty Enter: next prompt starts without OSC 133;C.
+        blocks.on_prompt_start(AbsLine(1));
+        blocks.on_input_start(AbsLine(1));
+        let map = VisualLineMap::build(&blocks, 20.0, 18.0, 20.0, AbsLine(0), AbsLine(2));
+        assert!(map.segments.is_empty());
+        assert_eq!(map.height, 0.0);
     }
 
     #[test]

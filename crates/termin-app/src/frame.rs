@@ -8,13 +8,19 @@ use termin_platform::RenderTarget;
 use termin_render::{DrawList, Layer, MetalRenderer, Renderer};
 use termin_text::{CoreTextBackend, GlyphCache};
 use termin_ui::{
-    draw_sidebar, draw_tabstrip, solid_quad, PaneRenderCache, PaneWidget, RowCtx, Scrollbar,
-    SidebarWorkspace, TabState, TermFonts, TermPalette, TerminalView, TerminalViewOpts, Tokens,
-    ViewKey, TAB_STRIP_HEIGHT,
+    draw_sidebar, draw_tabstrip, solid_quad, PaneRenderCache, PaneWidget, RowCtx, RowInstances,
+    Scrollbar, SidebarWorkspace, TabState, TermFonts, TermPalette, TerminalView, TerminalViewOpts,
+    Tokens, ViewKey, TAB_STRIP_HEIGHT,
 };
 
+use termin_ui::block_view::render::{home_relative, ROW_INSET};
+use termin_ui::block_view::BlockView;
+use termin_ui::draw::draw_text_mono;
+use termin_ui::widgets::completion_menu::CompletionMenuWidget;
+use termin_ui::widgets::editor::EditorWidget;
 use termin_ui::widgets::tabstrip::StripLayout;
 
+use crate::block_mode::{BlockMode, BlockTab};
 use crate::model::AppModel;
 
 struct RenderTargetAdapter<'a>(&'a mut dyn RenderTarget);
@@ -41,6 +47,8 @@ pub fn render_window_frame(
     tokens: &Tokens,
     pane_caches: &mut FxHashMap<PaneId, PaneRenderCache>,
     cursor_blink_visible: bool,
+    block_mode: &mut BlockMode,
+    block_scratch: &mut RowInstances,
 ) {
     let size = target.size();
     let scale = target.scale_factor();
@@ -174,7 +182,11 @@ pub fn render_window_frame(
                 if let Some(ref session) = tab.session {
                     let cell_w = fonts.geo.cell_w;
                     let cell_h = fonts.geo.cell_h;
-                    let cols = (content_rect.w / cell_w).floor().max(1.0) as u16;
+                    // Reserve the block-mode row insets in both modes so switching
+                    // between classic and block rendering never resizes the PTY.
+                    let cols = ((content_rect.w - 2.0 * ROW_INSET) / cell_w)
+                        .floor()
+                        .max(1.0) as u16;
                     let rows = (content_rect.h / cell_h).floor().max(1.0) as u16;
 
                     // Resize through Session only after releasing its terminal lock:
@@ -188,7 +200,32 @@ pub fn render_window_frame(
                         session.resize(cols, rows, (content_rect.w as u16, content_rect.h as u16));
                     }
 
-                    if let Ok(mut term) = session.term.lock() {
+                    let block_tab = match session.term.lock() {
+                        Ok(term) if block_mode.is_active(tab, &term) => {
+                            block_mode.tabs.get_mut(&tab.id)
+                        }
+                        _ => None,
+                    };
+                    if let Some(block_tab) = block_tab {
+                        if let Ok(term) = session.term.lock() {
+                            render_block_pane(
+                                &term,
+                                block_tab,
+                                BlockPaneCtx {
+                                    rect: content_rect,
+                                    focused: is_focused,
+                                    cursor_blink_visible,
+                                    cwd: tab.cwd.as_deref(),
+                                },
+                                glyphs,
+                                fonts,
+                                palette,
+                                tokens,
+                                block_scratch,
+                                &mut draw_list,
+                            );
+                        }
+                    } else if let Ok(mut term) = session.term.lock() {
                         let cache = pane_caches.entry(pane_id).or_default();
                         let view_key = ViewKey {
                             cols,
@@ -278,6 +315,190 @@ pub fn render_window_frame(
     } else {
         let mut adapter = RenderTargetAdapter(target);
         renderer.render(&mut adapter, &draw_list, tokens.bg_app);
+    }
+}
+
+/// Per-pane inputs for [`render_block_pane`].
+struct BlockPaneCtx<'a> {
+    rect: Rect,
+    focused: bool,
+    cursor_blink_visible: bool,
+    cwd: Option<&'a str>,
+}
+
+/// Height of the editor area for `lines` input lines (context chip row included).
+fn editor_height(lines: usize, cell_h: f32) -> f32 {
+    let chip_h = cell_h + 10.0;
+    chip_h + lines.clamp(1, 12) as f32 * cell_h + 16.0
+}
+
+/// Draw a pane in Warp-style block mode: finished/running command blocks above,
+/// the input editor (with a cwd chip row) below while the shell is at a prompt.
+#[allow(clippy::too_many_arguments)]
+fn render_block_pane(
+    term: &termin_vt::Terminal,
+    block_tab: &mut BlockTab,
+    pane: BlockPaneCtx<'_>,
+    glyphs: &mut GlyphCache<CoreTextBackend>,
+    fonts: &TermFonts,
+    palette: &TermPalette,
+    tokens: &Tokens,
+    scratch: &mut RowInstances,
+    draw_list: &mut DrawList,
+) {
+    let cell_w = fonts.geo.cell_w;
+    let cell_h = fonts.geo.cell_h;
+    let rect = pane.rect;
+    let editor_visible = block_tab.editor_visible();
+    let editor_h = if editor_visible {
+        let lines = block_tab.ctl.editor.text.split('\n').count();
+        editor_height(lines, cell_h).min(rect.h)
+    } else {
+        0.0
+    };
+    let blocks_rect = Rect::new(rect.x, rect.y, rect.w, (rect.h - editor_h).max(0.0));
+
+    // Blocks: chrome + output rows over a pixel-scrolled visual line map.
+    let cursor = term.cursor();
+    let bottom = termin_vt::AbsLine(cursor.pos.line.0 + 1);
+    block_tab.map.rebuild(
+        term.blocks(),
+        cell_h,
+        cell_h + 12.0,
+        cell_h + 8.0,
+        term.first_hot_line(),
+        bottom,
+    );
+    let max_scroll = (block_tab.map.height - blocks_rect.h).max(0.0);
+    block_tab.scroll_from_bottom = block_tab.scroll_from_bottom.min(max_scroll);
+    let scroll_y = max_scroll - block_tab.scroll_from_bottom;
+
+    let mut block_layer = Layer::new(Some(blocks_rect));
+    BlockView::render_chrome(
+        term.blocks(),
+        &block_tab.map,
+        blocks_rect,
+        scroll_y,
+        None,
+        None,
+        fonts,
+        glyphs,
+        tokens,
+        &mut block_layer,
+    );
+    let running = !editor_visible;
+    let cursor_line = (running && cursor.visible).then_some(cursor.pos.line);
+    let mut ctx = RowCtx {
+        glyphs,
+        fonts,
+        palette,
+    };
+    let cursor_row = BlockView::render_rows(
+        term,
+        &block_tab.map,
+        blocks_rect,
+        scroll_y,
+        cursor_line,
+        &mut ctx,
+        scratch,
+        &mut block_layer,
+    );
+    if let Some((x, y)) = cursor_row {
+        if pane.focused && pane.cursor_blink_visible {
+            block_layer.quads.push(solid_quad(
+                x + cursor.pos.col as f32 * cell_w,
+                y,
+                cell_w,
+                cell_h,
+                palette.cursor,
+            ));
+        }
+    }
+    draw_list.push_layer(block_layer);
+
+    if !editor_visible {
+        return;
+    }
+
+    // Editor: context chip row (cwd) above the input.
+    let editor_rect = Rect::new(rect.x, blocks_rect.bottom(), rect.w, editor_h);
+    let chip_h = cell_h + 10.0;
+    let mut editor_layer = Layer::new(Some(editor_rect));
+    editor_layer.quads.push(solid_quad(
+        editor_rect.x,
+        editor_rect.y,
+        editor_rect.w,
+        editor_rect.h,
+        tokens.bg_input,
+    ));
+    editor_layer.quads.push(solid_quad(
+        editor_rect.x,
+        editor_rect.y,
+        editor_rect.w,
+        1.0,
+        tokens.border_subtle,
+    ));
+    let (tilde, rest) = home_relative(pane.cwd.unwrap_or("~"));
+    let mut chip_x = editor_rect.x + ROW_INSET + 2.0;
+    let chip_y = editor_rect.y + (chip_h - cell_h) * 0.5;
+    if tilde {
+        draw_text_mono(
+            glyphs,
+            fonts.font,
+            &fonts.geo,
+            "~",
+            chip_x,
+            chip_y,
+            cell_w,
+            tokens.accent_tide,
+            &mut editor_layer,
+        );
+        chip_x += cell_w;
+    }
+    draw_text_mono(
+        glyphs,
+        fonts.font,
+        &fonts.geo,
+        rest,
+        chip_x,
+        chip_y,
+        editor_rect.right() - chip_x - ROW_INSET,
+        tokens.accent_tide,
+        &mut editor_layer,
+    );
+    draw_list.push_layer(editor_layer);
+
+    let input_rect = Rect::new(
+        editor_rect.x,
+        editor_rect.y + chip_h,
+        editor_rect.w,
+        (editor_rect.h - chip_h).max(0.0),
+    );
+    let mut input_layer = Layer::new(Some(input_rect));
+    EditorWidget::render(
+        &block_tab.ctl.editor,
+        input_rect,
+        pane.focused,
+        false,
+        fonts,
+        glyphs,
+        tokens,
+        &mut input_layer,
+    );
+    draw_list.push_layer(input_layer);
+
+    if let Some(menu) = block_tab.ctl.editor.menu.as_ref() {
+        let mut menu_layer = Layer::new(Some(rect));
+        CompletionMenuWidget::render(
+            menu,
+            input_rect,
+            blocks_rect,
+            fonts,
+            glyphs,
+            tokens,
+            &mut menu_layer,
+        );
+        draw_list.push_layer(menu_layer);
     }
 }
 

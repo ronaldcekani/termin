@@ -4,6 +4,7 @@
 
 pub mod action;
 pub mod app;
+pub mod block_mode;
 pub mod controllers;
 pub mod dispatch;
 pub mod frame;

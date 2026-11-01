@@ -235,6 +235,7 @@ pub fn handle_window_mouse(
     win_id: WindowId,
     ev: &MouseEvent,
     fonts: &TermFonts,
+    is_block_pane: &dyn Fn(termin_core::PaneId) -> bool,
 ) -> bool {
     let is_pointer_down = matches!(ev.kind, MouseKind::Down(_));
     let is_left_down = matches!(ev.kind, MouseKind::Down(MouseButton::Left));
@@ -303,7 +304,11 @@ pub fn handle_window_mouse(
     }
 
     let content_rect = PaneWidget::content_rect(pane_rect);
-    if content_rect.contains(ev.pos) {
+    if is_block_pane(pane_id) {
+        // Block mode draws blocks and the editor, not the raw grid: grid mouse
+        // selection/reporting coordinates would not line up.
+        focused
+    } else if content_rect.contains(ev.pos) {
         handle_mouse(model, ev, content_rect, fonts) || focused
     } else {
         false
@@ -526,6 +531,7 @@ mod routing_tests {
             second_window,
             &click(120.0, 65.0),
             &test_fonts(),
+            &|_| false,
         ));
         assert_eq!(model.focused_window, Some(second_window));
         assert_eq!(model.focused_workspace(), Some(second_workspace));
@@ -556,6 +562,7 @@ mod routing_tests {
             window,
             &click(second_tab_x, strip.y + 12.0),
             &test_fonts(),
+            &|_| false,
         ));
         assert_eq!(model.panes.get(pane).unwrap().active_tab, second_tab);
         assert_ne!(model.panes.get(pane).unwrap().active_tab, first_tab);
@@ -609,6 +616,7 @@ mod routing_tests {
             window,
             &hover,
             &test_fonts(),
+            &|_| false,
         ));
         assert_eq!(
             model.workspaces.get(workspace).unwrap().focused_pane,
@@ -622,6 +630,7 @@ mod routing_tests {
                 second_rect.y + TAB_STRIP_HEIGHT + 20.0
             ),
             &test_fonts(),
+            &|_| false,
         ));
         assert_eq!(
             model.workspaces.get(workspace).unwrap().focused_pane,
