@@ -166,6 +166,7 @@ impl MetalRenderer {
             list,
             clear,
             true,
+            false,
         )
     }
 
@@ -183,6 +184,8 @@ impl MetalRenderer {
 
         // SAFETY: Querying texture from valid CAMetalDrawable.
         let texture = unsafe { drawable.texture() };
+        // SAFETY: Reading a BOOL property from a valid CAMetalLayer.
+        let with_transaction = unsafe { layer.presentsWithTransaction() };
         self.render_to_texture_internal(
             &texture,
             Some(&drawable),
@@ -191,6 +194,7 @@ impl MetalRenderer {
             list,
             clear,
             false,
+            with_transaction,
         )
     }
 
@@ -205,6 +209,7 @@ impl MetalRenderer {
         list: &DrawList,
         clear: Rgba,
         wait: bool,
+        present_with_transaction: bool,
     ) -> Result<(), RenderError> {
         let phys_w = (size.w * scale_factor).round() as u32;
         let phys_h = (size.h * scale_factor).round() as u32;
@@ -411,12 +416,23 @@ impl MetalRenderer {
 
         encoder.endEncoding();
 
-        if let Some(d) = drawable {
-            let mtl_d: &ProtocolObject<dyn MTLDrawable> = ProtocolObject::from_ref(d);
-            cmd_buf.presentDrawable(mtl_d);
+        if present_with_transaction {
+            // CAMetalLayer.presentsWithTransaction requires: commit, wait until
+            // scheduled, then present, so the frame lands in the current CA
+            // transaction (in sync with the resizing window).
+            cmd_buf.commit();
+            cmd_buf.waitUntilScheduled();
+            if let Some(d) = drawable {
+                let mtl_d: &ProtocolObject<dyn MTLDrawable> = ProtocolObject::from_ref(d);
+                mtl_d.present();
+            }
+        } else {
+            if let Some(d) = drawable {
+                let mtl_d: &ProtocolObject<dyn MTLDrawable> = ProtocolObject::from_ref(d);
+                cmd_buf.presentDrawable(mtl_d);
+            }
+            cmd_buf.commit();
         }
-
-        cmd_buf.commit();
 
         if wait {
             // SAFETY: Waiting synchronously for command buffer to complete on GPU.
@@ -471,6 +487,7 @@ impl Renderer for MetalRenderer {
                 scale_factor,
                 list,
                 clear,
+                false,
                 false,
             );
             self.active_texture = Some(texture);

@@ -101,6 +101,8 @@ declare_class!(
             layer.setFramebufferOnly(true);
             layer.setPresentsWithTransaction(false);
             layer.setMaximumDrawableCount(2);
+            // Keep existing contents pinned top-left while resizing instead of stretching.
+            layer.setContentsGravity(objc2_foundation::ns_string!("topLeft"));
 
             let scale = self
                 .window()
@@ -661,10 +663,15 @@ declare_class!(
 
             if let Some(layer) = self.layer() {
                 let metal_layer: &CAMetalLayer = &*(Retained::as_ptr(&layer) as *const CAMetalLayer);
-                metal_layer.setDrawableSize(NSSize::new(
+                let want = NSSize::new(
                     new_size.width * (scale as CGFloat),
                     new_size.height * (scale as CGFloat),
-                ));
+                );
+                // Skip the (costly, drawable-reallocating) call when unchanged.
+                let cur = metal_layer.drawableSize();
+                if cur.width != want.width || cur.height != want.height {
+                    metal_layer.setDrawableSize(want);
+                }
             }
 
             crate::macos::app::set_window_size_and_scale(win_id, size, scale);
@@ -675,6 +682,23 @@ declare_class!(
 
             // Synchronous live render during window resizing
             crate::macos::app::dispatch_sync_render(win_id);
+        }
+
+        #[method(viewDidEndLiveResize)]
+        unsafe fn view_did_end_live_resize(&self) {
+            let () = msg_send![super(self), viewDidEndLiveResize];
+            // Final frame so any throttled terminal reflow settles promptly.
+            let win_id = self.ivars().window_id.get();
+            let bounds = self.bounds();
+            let scale = self
+                .window()
+                .map(|w| w.backingScaleFactor() as f32)
+                .unwrap_or(2.0);
+            let size = Size {
+                w: bounds.size.width as f32,
+                h: bounds.size.height as f32,
+            };
+            crate::macos::app::dispatch_event(win_id, PlatformEvent::Resized { size, scale });
         }
 
         #[method(viewDidChangeEffectiveAppearance)]
