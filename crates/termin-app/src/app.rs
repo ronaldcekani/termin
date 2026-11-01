@@ -10,7 +10,7 @@ use termin_platform::{ActionId, AppHandler, PlatformCx, PlatformEvent, RenderTar
 use termin_pty::{Reactor, ReactorEvent, ReactorHandle, Session};
 use termin_render::MetalRenderer;
 use termin_text::{CoreTextBackend, FontBackend, FontSpec, GlyphCache};
-use termin_ui::{PaneRenderCache, RowInstances, TermFonts, TermPalette, Tokens, UiFont};
+use termin_ui::{PaneRenderCache, TermFonts, TermPalette, Tokens, UiFont};
 
 /// Point size of the proportional chrome font (tab titles, labels).
 const UI_FONT_SIZE: f32 = 12.0;
@@ -21,7 +21,7 @@ use termin_vt::Terminal;
 use crate::block_mode::{BlockMode, KeyOutcome};
 use crate::controllers;
 use crate::folder_search::{self, FolderSearch};
-use crate::frame::render_window_frame;
+use crate::frame::{render_window_frame, FrameScratch};
 use crate::hover::{hover_at, HoverState};
 use crate::input::{handle_ime_commit, handle_key, handle_scroll, handle_window_mouse};
 use crate::keymap::Keymap;
@@ -54,7 +54,7 @@ pub struct App {
     pub font_size: f32,
     /// Warp-style block mode state (editor, history, scroll) per tab.
     pub block_mode: BlockMode,
-    block_scratch: RowInstances,
+    frame_scratch: FrameScratch,
     /// Last drag regions sent to the platform per window, plus a scratch buffer.
     drag_regions: FxHashMap<WindowId, Vec<Rect>>,
     drag_scratch: Vec<Rect>,
@@ -127,7 +127,7 @@ impl App {
             cursor_blink_visible: true,
             font_size,
             block_mode,
-            block_scratch: RowInstances::default(),
+            frame_scratch: FrameScratch::default(),
             drag_regions: FxHashMap::default(),
             drag_scratch: Vec::new(),
             search: FolderSearch::default(),
@@ -435,6 +435,7 @@ impl App {
         for cache in self.pane_caches.values_mut() {
             cache.invalidate();
         }
+        self.block_mode.invalidate_rows();
     }
 
     /// Apply a new backing scale factor: rebuild font metrics at that scale and drop every
@@ -719,7 +720,7 @@ impl AppHandler for App {
                 &mut self.pane_caches,
                 self.cursor_blink_visible,
                 &mut self.block_mode,
-                &mut self.block_scratch,
+                &mut self.frame_scratch,
                 &mut self.resize_times,
                 &self.search,
                 self.hover.target_for(win),

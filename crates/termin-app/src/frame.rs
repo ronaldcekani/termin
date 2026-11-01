@@ -8,14 +8,14 @@ use rustc_hash::FxHashMap;
 use termin_core::{PaneId, Rect, Size, WindowId};
 use termin_platform::RenderTarget;
 use termin_render::{DrawList, Layer, MetalRenderer, Renderer};
-use termin_text::{CoreTextBackend, GlyphCache};
+use termin_text::{AtlasUpload, CoreTextBackend, GlyphCache};
 use termin_ui::{
-    draw_sidebar, draw_tabstrip, solid_quad, PaneRenderCache, PaneWidget, RowCtx, RowInstances,
-    Scrollbar, SidebarWorkspace, TabState, TermFonts, TermPalette, TerminalView, TerminalViewOpts,
-    Tokens, ViewKey, TAB_STRIP_HEIGHT,
+    draw_sidebar, draw_tabstrip, solid_quad, PaneRenderCache, PaneWidget, RowCtx, Scrollbar,
+    SidebarWorkspace, TabState, TermFonts, TermPalette, TerminalView, TerminalViewOpts, Tokens,
+    ViewKey, TAB_STRIP_HEIGHT,
 };
 
-use termin_ui::block_view::render::{home_relative, ROW_INSET};
+use termin_ui::block_view::render::{home_relative, RowCacheKey, ROW_INSET};
 use termin_ui::block_view::BlockView;
 use termin_ui::draw::draw_text_mono;
 use termin_ui::widgets::completion_menu::CompletionMenuWidget;
@@ -31,6 +31,12 @@ use termin_ui::widgets::text_field::draw_text_field;
 
 /// Minimum interval between PTY winsize/reflow updates per pane while the grid size is changing.
 const RESIZE_THROTTLE: Duration = Duration::from_millis(48);
+
+/// Buffers reused across frames so steady-state rendering does not allocate them.
+#[derive(Default)]
+pub struct FrameScratch {
+    uploads: Vec<AtlasUpload>,
+}
 
 struct RenderTargetAdapter<'a>(&'a mut dyn RenderTarget);
 
@@ -57,7 +63,7 @@ pub fn render_window_frame(
     pane_caches: &mut FxHashMap<PaneId, PaneRenderCache>,
     cursor_blink_visible: bool,
     block_mode: &mut BlockMode,
-    block_scratch: &mut RowInstances,
+    scratch: &mut FrameScratch,
     resize_times: &mut FxHashMap<PaneId, Instant>,
     search: &FolderSearch,
     hover: HoverTarget,
@@ -312,7 +318,7 @@ pub fn render_window_frame(
                                 fonts,
                                 palette,
                                 tokens,
-                                block_scratch,
+                                scale,
                                 &mut draw_list,
                             );
                         }
@@ -436,10 +442,11 @@ pub fn render_window_frame(
     }
 
     // 5. Upload new glyph bitmaps to GPU atlas
-    let mut uploads = Vec::new();
-    glyphs.drain_uploads(&mut uploads);
+    let uploads = &mut scratch.uploads;
+    uploads.clear();
+    glyphs.drain_uploads(uploads);
     if !uploads.is_empty() {
-        renderer.upload_glyphs_with_data(&uploads, glyphs.staging_bytes());
+        renderer.upload_glyphs_with_data(uploads, glyphs.staging_bytes());
         glyphs.clear_staging();
     }
 
@@ -482,7 +489,7 @@ fn render_block_pane(
     fonts: &TermFonts,
     palette: &TermPalette,
     tokens: &Tokens,
-    scratch: &mut RowInstances,
+    scale: f32,
     draw_list: &mut DrawList,
 ) {
     let cell_w = fonts.geo.cell_w;
@@ -532,14 +539,22 @@ fn render_block_pane(
         fonts,
         palette,
     };
+    // Rows depend on the grid width, the backing scale and the atlas, not on the
+    // pixel width of the pane, so live-resize ticks between reflows hit the cache.
+    let row_key = RowCacheKey {
+        cols: term.cols(),
+        epoch: scale.to_bits(),
+        atlas_epoch: ctx.glyphs.epoch,
+    };
     let cursor_row = BlockView::render_rows(
         term,
         &block_tab.map,
         blocks_rect,
         scroll_y,
         cursor_line,
+        row_key,
         &mut ctx,
-        scratch,
+        &mut block_tab.rows,
         &mut block_layer,
     );
     if let Some((x, y)) = cursor_row {

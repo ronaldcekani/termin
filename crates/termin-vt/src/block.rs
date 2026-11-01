@@ -4,6 +4,7 @@
 
 use bitflags::bitflags;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use termin_core::BlockId;
 
@@ -64,7 +65,13 @@ pub struct BlockList {
     pub active: Option<BlockId>,
     next_id: u32,
     last_cwd: Option<Box<str>>,
+    /// Bumped on every mutation; see [`BlockList::generation`].
+    generation: u64,
 }
+
+/// Each new list starts in its own generation range so a cache keyed on
+/// `generation` cannot confuse two different lists (e.g. a restarted session).
+static NEXT_LIST_EPOCH: AtomicU64 = AtomicU64::new(1);
 
 impl Default for BlockList {
     fn default() -> Self {
@@ -81,7 +88,21 @@ impl BlockList {
             active: None,
             next_id: 1,
             last_cwd: None,
+            generation: NEXT_LIST_EPOCH.fetch_add(1 << 32, Ordering::Relaxed),
         }
+    }
+
+    /// Counter bumped on any mutation (push, end, flags, cwd, eviction, remap,
+    /// `get_mut`). Unchanged generation means the list is unchanged. Direct
+    /// writes to the public `active` field are not tracked.
+    #[inline]
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    #[inline]
+    fn touch(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Block> {
@@ -97,20 +118,31 @@ impl BlockList {
     }
 
     pub fn get(&self, id: BlockId) -> Option<&Block> {
+        // Ids grow with push order, so the deque is sorted unless the u32 counter
+        // wrapped (front > back); only then fall back to a linear scan.
+        if let (Some(front), Some(back)) = (self.blocks.front(), self.blocks.back()) {
+            if front.id.0 <= back.id.0 {
+                let i = self.blocks.partition_point(|b| b.id.0 < id.0);
+                return self.blocks.get(i).filter(|b| b.id == id);
+            }
+        }
         self.blocks.iter().find(|b| b.id == id)
     }
 
     pub fn get_mut(&mut self, id: BlockId) -> Option<&mut Block> {
+        self.touch();
         self.blocks.iter_mut().find(|b| b.id == id)
     }
 
     /// Record CWD update from OSC 7 / OSC 1337.
     pub fn set_cwd(&mut self, cwd: &str) {
         self.last_cwd = Some(cwd.into());
+        self.touch();
     }
 
     /// 133;A: Prompt start.
     pub fn on_prompt_start(&mut self, current_line: AbsLine) -> BlockEvent {
+        self.touch();
         // If a block is currently active without finish (D), mark it interrupted
         if let Some(active_id) = self.active.take() {
             if let Some(b) = self.get_mut(active_id) {
@@ -195,6 +227,7 @@ impl BlockList {
 
     /// Mark all completed blocks up to `cursor_line` as CLEARED.
     pub fn clear_up_to(&mut self, cursor_line: AbsLine) {
+        self.touch();
         for b in &mut self.blocks {
             if let Some(end) = b.end {
                 if end <= cursor_line {
@@ -206,6 +239,7 @@ impl BlockList {
 
     /// Handle line eviction in scrollback.
     pub fn on_lines_evicted(&mut self, oldest_retained: AbsLine) {
+        self.touch();
         self.blocks.retain_mut(|b| {
             if let Some(end) = b.end {
                 if end <= oldest_retained {
@@ -221,6 +255,7 @@ impl BlockList {
 
     /// Remap block line indices during reflow.
     pub fn remap(&mut self, remap_fn: impl Fn(AbsLine) -> AbsLine) {
+        self.touch();
         for b in &mut self.blocks {
             b.prompt_start = remap_fn(b.prompt_start);
             if let Some(input) = b.input_start {
@@ -239,6 +274,25 @@ impl BlockList {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generation_bumps_on_mutation() {
+        let mut list = BlockList::new();
+        let g0 = list.generation();
+        list.on_prompt_start(AbsLine(0));
+        let g1 = list.generation();
+        assert_ne!(g0, g1);
+        assert_eq!(list.generation(), g1);
+        list.on_output_start(AbsLine(1), Some("x"));
+        let g2 = list.generation();
+        assert_ne!(g1, g2);
+        list.on_command_finished(AbsLine(2), 0);
+        assert_ne!(list.generation(), g2);
+        let g3 = list.generation();
+        list.clear_up_to(AbsLine(5));
+        assert_ne!(list.generation(), g3);
+        assert_ne!(BlockList::new().generation(), BlockList::new().generation());
+    }
 
     #[test]
     fn test_block_lifecycle() {

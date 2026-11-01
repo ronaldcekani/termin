@@ -12,6 +12,7 @@ use termin_core::{Key, KeyEvent, Mods, NamedKey, TabId};
 use termin_editor::{HistoryEntry, HistoryIndex};
 use termin_vt::{BlockEvent, Modes, Terminal};
 
+use termin_ui::block_view::render::BlockRowCache;
 use termin_ui::block_view::VisualLineMap;
 
 use crate::controllers::editor::{EditorController, InputRoute, ShellMark};
@@ -27,6 +28,8 @@ pub struct BlockTab {
     history_nav: Option<(usize, String)>,
     /// Visual line map, rebuilt in place each frame.
     pub map: VisualLineMap,
+    /// Row instances per absolute line (see `BlockRowCache`).
+    pub rows: BlockRowCache,
 }
 
 impl BlockTab {
@@ -96,6 +99,13 @@ impl BlockMode {
                 .tabs
                 .get(&tab.id)
                 .is_some_and(|s| s.ctl.integration_seen())
+    }
+
+    /// Drop cached row instances (font/scale/theme changed).
+    pub fn invalidate_rows(&mut self) {
+        for tab in self.tabs.values_mut() {
+            tab.rows.invalidate();
+        }
     }
 
     /// Forget state for closed tabs.

@@ -3,6 +3,8 @@
 //! The map is intentionally independent of app state so callers can cache it
 //! per tab and rebuild it only when the VT block list or viewport changes.
 
+#[cfg(test)]
+mod bench;
 pub mod render;
 pub use render::BlockView;
 
@@ -25,11 +27,23 @@ pub struct Segment {
     pub h: f32,
 }
 
+/// Inputs of the last build; an identical key means the map is still valid.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MapKey {
+    generation: u64,
+    line_height: f32,
+    header_height: f32,
+    command_height: f32,
+    top: AbsLine,
+    bottom: AbsLine,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VisualLineMap {
     pub segments: Vec<Segment>,
     pub height: f32,
     pub line_height: f32,
+    key: Option<MapKey>,
 }
 
 impl VisualLineMap {
@@ -56,6 +70,8 @@ impl VisualLineMap {
     }
 
     /// Rebuild in place, reusing the segment buffer (no allocation in steady state).
+    /// Returns immediately when the block list generation and all geometry inputs
+    /// match the previous build. The map does not depend on pane width.
     pub fn rebuild(
         &mut self,
         blocks: &BlockList,
@@ -65,6 +81,18 @@ impl VisualLineMap {
         top: AbsLine,
         bottom: AbsLine,
     ) {
+        let key = MapKey {
+            generation: blocks.generation(),
+            line_height,
+            header_height,
+            command_height,
+            top,
+            bottom,
+        };
+        if self.key == Some(key) {
+            return;
+        }
+        self.key = Some(key);
         self.segments.clear();
         self.height = 0.0;
         self.line_height = line_height.max(1.0);
@@ -116,6 +144,14 @@ impl VisualLineMap {
             h,
         });
         self.height += h;
+    }
+
+    /// Segments intersecting the content-space band `[y0, y1]` (segments are
+    /// contiguous and sorted by `y`, so this is a binary search, not a scan).
+    pub fn visible(&self, y0: f32, y1: f32) -> &[Segment] {
+        let first = self.segments.partition_point(|s| s.y + s.h < y0);
+        let last = self.segments.partition_point(|s| s.y <= y1);
+        &self.segments[first..last.max(first)]
     }
 
     pub fn segment_at(&self, y: f32) -> Option<&Segment> {
@@ -233,6 +269,51 @@ mod tests {
         );
         assert_eq!(map.segment_at(40.0).and_then(|s| s.block), Some(id));
         assert_eq!(BlockId(id.0), id);
+    }
+
+    #[test]
+    fn rebuild_is_skipped_until_inputs_change() {
+        let mut blocks = BlockList::new();
+        blocks.on_prompt_start(AbsLine(0));
+        blocks.on_input_start(AbsLine(1));
+        blocks.on_output_start(AbsLine(2), Some("ls"));
+        blocks.on_command_finished(AbsLine(5), 0);
+        let mut map = VisualLineMap::default();
+        map.rebuild(&blocks, 20.0, 18.0, 20.0, AbsLine(0), AbsLine(6));
+        let h = map.height;
+        // Poison the output: an identical-key rebuild must not touch it.
+        map.height = -1.0;
+        map.rebuild(&blocks, 20.0, 18.0, 20.0, AbsLine(0), AbsLine(6));
+        assert_eq!(map.height, -1.0);
+        map.rebuild(&blocks, 20.0, 18.0, 20.0, AbsLine(0), AbsLine(7));
+        assert_ne!(map.height, -1.0);
+        let _ = h;
+        assert!(map.height > 0.0);
+        map.height = -1.0;
+        blocks.clear_up_to(AbsLine(9));
+        map.rebuild(&blocks, 20.0, 18.0, 20.0, AbsLine(0), AbsLine(7));
+        assert_eq!(map.height, 0.0);
+    }
+
+    #[test]
+    fn visible_returns_only_intersecting_segments() {
+        let mut blocks = BlockList::new();
+        for i in 0..10u64 {
+            blocks.on_prompt_start(AbsLine(i * 10));
+            blocks.on_input_start(AbsLine(i * 10 + 1));
+            blocks.on_output_start(AbsLine(i * 10 + 2), Some("c"));
+            blocks.on_command_finished(AbsLine(i * 10 + 8), 0);
+        }
+        let map = VisualLineMap::build(&blocks, 20.0, 18.0, 20.0, AbsLine(0), AbsLine(100));
+        let v = map.visible(500.0, 600.0);
+        assert!(!v.is_empty() && v.len() < map.segments.len());
+        assert!(v.iter().all(|s| s.y + s.h >= 500.0 && s.y <= 600.0));
+        let brute = map
+            .segments
+            .iter()
+            .filter(|s| s.y + s.h >= 500.0 && s.y <= 600.0)
+            .count();
+        assert_eq!(v.len(), brute);
     }
 
     #[test]
